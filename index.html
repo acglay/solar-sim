@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v10.0</title>
+    <title>Solar Simulator v10.1</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -25,7 +25,7 @@
     </style>
 </head>
 <body>
-<div id="version">v10.0 Universal Suffix & On-Rail Moons</div>
+<div id="version">v10.1 Stable Input & SN Toggle</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
@@ -70,14 +70,17 @@ const KANA = "アイウエオカキクケコサシスセソタチツテトナニ
 
 function mutateName(name) {
     let chars = name.split('');
-    let idx = Math.floor(Math.random() * chars.length);
-    chars[idx] = KANA[Math.floor(Math.random() * KANA.length)];
+    let mutationCount = Math.max(1, Math.floor(chars.length * 0.2));
+    for(let i=0; i<mutationCount; i++) {
+        let idx = Math.floor(Math.random() * chars.length);
+        chars[idx] = KANA[Math.floor(Math.random() * KANA.length)];
+    }
     return chars.join('');
 }
 
 function getSuffix(n) {
-    let s = "";
-    while(n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; }
+    let s = ""; n++;
+    while(n > 0) { let m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - m) / 26); }
     return s;
 }
 
@@ -89,17 +92,193 @@ class Body {
     constructor(x, y, vx, vy, mass, color, name, ringType = null, isMoon = false) {
         this.id = bodyCounter++; this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.ax = 0; this.ay = 0; this.mass = mass; 
         this.baseColor = color; this.color = color; this.name = name; this.ringType = ringType; this.isMoon = isMoon;
-        this.emoji = (Object.values(PRESETS).find(p => p.n.includes(name.split(' ')[0])) || {e: "🪐"}).e;
+        this.emoji = (Object.values(PRESETS).find(p => this.name.includes(p.n)) || {e: "🪐"}).e;
         this.isAnalytic = isMoon; this.parent = null; this.orbitDist = 0; this.angle = 0;
         this.updateProperties();
     }
     updateProperties() {
         if (this.mass >= 5000000 && !this.name.includes("ブラックホール")) {
-            this.name = "ブラックホール " + (this.name.split(' ').slice(1).join(' ') || getSuffix(addedCount++));
-            this.baseColor = "#000"; updateSelect();
+            let suffix = this.name.split(' ').pop();
+            if (!/^[A-Z]+$/.test(suffix)) suffix = getSuffix(addedCount++);
+            this.name = "ブラックホール " + suffix; this.baseColor = "#000"; updateSelect();
         }
         this.isBlackHole = this.name.includes("ブラックホール");
         if (!this.isBlackHole && !this.isMoon && this.mass > 500000) {
+            if (this.mass < 1500000) this.color = "#ffcc00"; 
+            else if (this.mass < 3000000) this.color = "#ffffff"; 
+            else this.color = "#aaccff"; 
+        } else if (this.isBlackHole) this.color = "#000";
+        else this.color = this.baseColor;
+        this.radius = Math.max(1.5, Math.log10(this.mass + 1) * 8 * (this.isBlackHole ? 0.4 : (this.isMoon ? 0.6 : 2.5)));
+    }
+}
+
+function computePhysics(bodyList, dt) {
+    bodyList.forEach(b => { b.oldAx = b.ax; b.oldAy = b.ay; b.ax = 0; b.ay = 0; b.maxForce = 0; });
+    for (let i = 0; i < bodyList.length; i++) {
+        const b1 = bodyList[i];
+        for (let j = i + 1; j < bodyList.length; j++) {
+            const b2 = bodyList[j], dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx+dy*dy+0.01, d = Math.sqrt(d2), f = (G*b1.mass*b2.mass)/d2;
+            b1.ax += (f*dx/d)/b1.mass; b1.ay += (f*dy/d)/b1.mass; b2.ax -= (f*dx/d)/b2.mass; b2.ay -= (f*dy/d)/b2.mass;
+            if (f/b1.mass > b1.maxForce) { b1.maxForce = f/b1.mass; b1.strongestAttractorName = b2.name; b1.attractorPos = {x:b2.x, y:b2.y}; }
+            if (f/b2.mass > b2.maxForce) { b2.maxForce = f/b2.mass; b2.strongestAttractorName = b1.name; b2.attractorPos = {x:b1.x, y:b1.y}; }
+        }
+    }
+    bodyList.forEach(b => {
+        if (b.isAnalytic && b.parent) {
+            const omega = Math.sqrt((G*(b.parent.mass+b.mass))/Math.pow(b.orbitDist,3)); b.angle += omega*dt;
+            b.x = b.parent.x + Math.cos(b.angle)*b.orbitDist; b.y = b.parent.y + Math.sin(b.angle)*b.orbitDist;
+            return;
+        }
+        b.x += b.vx*dt + 0.5*b.oldAx*dt*dt; b.y += b.vy*dt + 0.5*b.oldAy*dt*dt;
+        b.vx += 0.5*(b.oldAx+b.ax)*dt; b.vy += 0.5*(b.oldAy+b.ay)*dt;
+    });
+}
+
+function initSolarSystem() {
+    bodyCounter = 0; addedCount = 0; bodies = [];
+    const sun = new Body(0, 0, 0, 0, PRESETS.sun.m, PRESETS.sun.c, "太陽"); bodies.push(sun);
+    const data = [[387, PRESETS.mercury.m, PRESETS.mercury.c, "水星", null, []],[723, PRESETS.venus.m, PRESETS.venus.c, "金星", null, []],[1000, PRESETS.earth.m, PRESETS.earth.c, "地球", null, [[25, 0.037, "#b0b0b0", "月"]]],[1524, PRESETS.mars.m, PRESETS.mars.c, "火星", null, [[12, 0.0001, "#b59e8a", "フォボス"], [18, 0.0001, "#9d8b7a", "ダイモス"]]],[5203, PRESETS.jupiter.m, PRESETS.jupiter.c, "木星", null, [[110, 0.45, "#e2d06e", "イオ"], [150, 0.40, "#a0a0a0", "エウロパ"], [200, 0.70, "#7a7a7a", "ガニメデ"]]],[9537, PRESETS.saturn.m, PRESETS.saturn.c, "土星", "h", [[250, 0.65, "#d2a01e", "タイタン"]]],[19191, PRESETS.uranus.m, PRESETS.uranus.c, "天王星", "v", []],[30069, PRESETS.neptune.m, PRESETS.neptune.c, "海王星", null, [[280, 0.10, "#90a0b0", "トリトン"]]]];
+    data.forEach(p => {
+        const planet = new Body(0, 0, 0, 0, p[1], p[2], p[3], p[4], false);
+        const angle = Math.random()*Math.PI*2, vMag = Math.sqrt((G*(sun.mass+p[1]))/p[0]);
+        planet.x = Math.cos(angle)*p[0]; planet.y = Math.sin(angle)*p[0];
+        planet.vx = -Math.sin(angle)*vMag; planet.vy = Math.cos(angle)*vMag;
+        bodies.push(planet);
+        p[5].forEach(m => {
+            const moon = new Body(0,0,0,0,m[1],m[2],m[3],null,true); moon.parent = planet; moon.orbitDist = m[0]; moon.angle = Math.random()*Math.PI*2; bodies.push(moon);
+        });
+    });
+    updateSelect();
+}
+
+function handleGacha() {
+    bodyCounter = 0; addedCount = 0; bodies = []; 
+    const sunA = new Body(0, 0, 0, 0, PRESETS.sun.m*(0.8+Math.random()*0.4), '#fff', mutateName(BASE_NAMES[Math.floor(Math.random()*BASE_NAMES.length)]));
+    if (Math.random() < 0.1) {
+        const dist = 400 + Math.random()*400, massB = PRESETS.sun.m*(0.4+Math.random()*0.4), sunB = new Body(0, 0, 0, 0, massB, '#ffaa00', mutateName(BASE_NAMES[Math.floor(Math.random()*BASE_NAMES.length)]));
+        if (Math.random() < 0.5) { const v = Math.sqrt((G*(sunB.mass+sunA.mass))/dist); sunA.x = dist; sunA.vy = v; bodies.push(sunB, sunA); }
+        else { const v = Math.sqrt((G*(sunA.mass+massB))/dist); sunB.x = dist; sunB.vy = v; bodies.push(sunA, sunB); }
+    } else bodies.push(sunA);
+    const center = bodies[0];
+    for (let i=0; i<10; i++) {
+        const d = 1200+Math.random()*8000, m = 0.1+Math.random()*200, a = Math.random()*Math.PI*2, v = Math.sqrt((G*(center.mass+m))/d);
+        bodies.push(new Body(center.x+Math.cos(a)*d, center.y+Math.sin(a)*d, center.vx-Math.sin(a)*v, center.vy+Math.cos(a)*v, m, `hsl(${Math.random()*360},70%,60%)`, mutateName(BASE_NAMES[Math.floor(Math.random()*BASE_NAMES.length)])));
+    }
+    updateSelect();
+}
+
+function loop() {
+    if (!isPaused) {
+        const timeScale = parseFloat(document.getElementById('timeRange').value);
+        const subSteps = isHighPrecision ? 128 : 32; const dt = (timeScale * 0.5) / subSteps;
+        for (let s = 0; s < subSteps; s++) {
+            computePhysics(bodies, dt);
+            if (isCollision) {
+                for (let i = 0; i < bodies.length; i++) {
+                    for (let j = i+1; j < bodies.length; j++) {
+                        const b1 = bodies[i], b2 = bodies[j], dx = b2.x-b1.x, dy = b2.y-b1.y, d = Math.sqrt(dx*dx+dy*dy);
+                        if (d < (b1.radius + b2.radius) * 0.7) {
+                            const s = b1.mass > b2.mass ? b1 : b2, v = b1.mass > b2.mass ? b2 : b1;
+                            bodies.filter(m => m.parent === v).forEach(m => bodies.splice(bodies.indexOf(m), 1));
+                            s.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/(b1.mass+b2.mass); s.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/(b1.mass+b2.mass);
+                            s.mass += v.mass; s.updateProperties(); bodies.splice(bodies.indexOf(v), 1); updateSelect(); j--;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; return p.life > 0; });
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const target = bodies.find(b => b.id === parseInt(document.getElementById('targetSelect').value));
+    if (target) { offset.x = target.x; offset.y = target.y + (panel.offsetHeight / (2 * zoom)); }
+
+    bodies.forEach(b => {
+        if (b.isMoon && zoom < 1.2) return;
+        const sx = (b.x-offset.x)*zoom + canvas.width/2, sy = (b.y-offset.y)*zoom + canvas.height/2, sr = Math.max(3, b.radius*zoom);
+        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2); ctx.fillStyle = b.color; ctx.fill();
+        if (b.isBlackHole) { ctx.strokeStyle = "white"; ctx.stroke(); }
+        if (showLabels && (!b.isMoon || zoom > 1.2)) {
+            const startX = sx + sr*Math.cos(-Math.PI/4), startY = sy + sr*Math.sin(-Math.PI/4);
+            const lx = startX+15, ly = startY-15;
+            ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(lx, ly); ctx.strokeStyle="rgba(255,255,255,0.3)"; ctx.stroke();
+            ctx.fillStyle="white"; ctx.font=`${b.isMoon?9:12}px sans-serif`; ctx.fillText(b.name, lx+2, ly);
+        }
+        if (showDebug && b.attractorPos) {
+            const tx = (b.attractorPos.x-offset.x)*zoom + canvas.width/2, ty = (b.attractorPos.y-offset.y)*zoom + canvas.height/2;
+            const al = Math.min(Math.sqrt((tx-sx)**2+(ty-sy)**2)*0.8, 40);
+            ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx+(tx-sx)/Math.sqrt((tx-sx)**2+(ty-sy)**2)*al, sy+(ty-sy)/Math.sqrt((tx-sx)**2+(ty-sy)**2)*al);
+            ctx.strokeStyle = "yellow"; ctx.stroke();
+        }
+    });
+    particles.forEach(p => { ctx.fillStyle=`rgba(255,100,0,${p.life})`; ctx.fillRect((p.x-offset.x)*zoom+canvas.width/2, (p.y-offset.y)*zoom+canvas.height/2, 2, 2); });
+    requestAnimationFrame(loop);
+}
+
+function spawn(x, y, ex, ey) {
+    const sx = (x - canvas.width/2)/zoom+offset.x, sy = (y - canvas.height/2)/zoom+offset.y;
+    const vx = (ex-x)*0.06/zoom, vy = (ey-y)*0.06/zoom, type = document.getElementById('launchType').value, c = PRESETS[type];
+    const m = !(document.getElementById('massRange').disabled) ? c.m * parseFloat(document.getElementById('massRange').value) : c.m;
+    const b = new Body(sx, sy, vx, vy, m, c.c, c.n + " " + getSuffix(addedCount++), c.r);
+    bodies.push(b); updateSelect();
+    if (isSNMode && b.name.includes(c.n)) triggerSN(b);
+}
+
+function triggerSN(t) {
+    if (!t || t.isBlackHole) return;
+    for(let i=0;i<100;i++) particles.push({x:t.x, y:t.y, vx:(Math.random()-0.5)*15, vy:(Math.random()-0.5)*15, life:1});
+    if (t.mass >= 2000000) { t.updateProperties(); }
+    else { bodies.splice(bodies.indexOf(t), 1); document.getElementById('targetSelect').value="-1"; }
+    updateSelect();
+}
+
+canvas.onmousedown = (e) => { isDragging = true; startPos = {x:e.clientX, y:e.clientY}; inputHandled = false; };
+window.onmouseup = (e) => { if(isDragging && !inputHandled) { spawn(startPos.x, startPos.y, e.clientX, e.clientY); inputHandled = true; } isDragging = false; };
+
+canvas.addEventListener('touchstart', (e) => { 
+    e.preventDefault(); isDragging = true; startPos = {x:e.touches[0].clientX, y:e.touches[0].clientY}; inputHandled = false; 
+    if (e.touches.length === 2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); lastMid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; }
+}, {passive: false});
+canvas.addEventListener('touchmove', (e) => { 
+    e.preventDefault();
+    if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+        const mid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2};
+        zoom *= (d/lastPinchDist); offset.x -= (mid.x-lastMid.x)/zoom; offset.y -= (mid.y-lastMid.y)/zoom; lastPinchDist = d; lastMid = mid;
+    }
+}, {passive: false});
+canvas.addEventListener('touchend', (e) => { 
+    e.preventDefault(); if (isDragging && !inputHandled && e.changedTouches.length === 1) { spawn(startPos.x, startPos.y, e.changedTouches[0].clientX, e.changedTouches[0].clientY); inputHandled = true; } isDragging = false; 
+}, {passive: false});
+
+function updateSelect() {
+    const sel = document.getElementById('targetSelect'); const v = sel.value; sel.innerHTML = '<option value="-1">🔭 自由視点</option>';
+    bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = b.emoji + " " + b.name; sel.appendChild(o); });
+    sel.value = v;
+}
+
+window.onload = () => {
+    document.getElementById('resetBtn').onclick = () => { initSolarSystem(); updateSelect(); };
+    document.getElementById('randomBtn').onclick = handleGacha;
+    document.getElementById('snBtn').onclick = function() {
+        isSNMode = !isSNMode; this.style.background = isSNMode ? "#b06000" : "#333";
+        const t = bodies.find(b => b.id === parseInt(document.getElementById('targetSelect').value));
+        if (isSNMode && t) { triggerSN(t); isSNMode = false; this.style.background = "#333"; }
+    };
+    document.getElementById('pauseBtn').onclick = function() { isPaused = !isPaused; this.textContent = isPaused ? "▶️" : "⏸️"; };
+    document.getElementById('labelBtn').onclick = function() { showLabels = !showLabels; this.style.background = showLabels ? "#0060b0" : "#333"; };
+    document.getElementById('debugBtn').onclick = function() { showDebug = !showDebug; this.style.background = showDebug ? "#b0a000" : "#333"; };
+    document.getElementById('precisionBtn').onclick = function() { isHighPrecision = !isHighPrecision; this.style.background = isHighPrecision ? "#00b060" : "#333"; };
+    document.getElementById('collisionBtn').onclick = function() { isCollision = !isCollision; this.style.background = isCollision ? "#00b060" : "#333"; };
+    document.getElementById('launchType').onchange = () => { document.getElementById('massRange').disabled = !(document.getElementById('launchType').value==='sun'||document.getElementById('launchType').value==='blackhole'); };
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    initSolarSystem(); updateSelect(); loop();
+};
+</script>
+</body>
+</html>
             if (this.mass < 1500000) this.color = "#ffcc00"; 
             else if (this.mass < 3000000) this.color = "#ffffff"; 
             else this.color = "#aaccff"; 
