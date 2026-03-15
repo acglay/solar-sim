@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v5.7 - Ultra Precision</title>
+    <title>Solar Simulator v5.8 - Ultra Precision</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; }
@@ -24,7 +24,7 @@
 <body>
 <canvas id="canvas"></canvas>
 <div class="ui-panel">
-    <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点 (Free View)</option></select></div>
+    <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
     <div class="ui-row">
         <select id="physicsMode"><option value="collision">⚙️ 合体</option><option value="normal">⚙️ 透過</option></select>
         <select id="launchType">
@@ -49,29 +49,13 @@
 
 <script>
 const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
-const ui = {
-    targetSelect: document.getElementById('targetSelect'), snBtn: document.getElementById('snBtn'), labelBtn: document.getElementById('labelBtn'),
-    physicsMode: document.getElementById('physicsMode'), launchType: document.getElementById('launchType'),
-    massRange: document.getElementById('massRange'), timeRange: document.getElementById('timeRange'),
-    pauseBtn: document.getElementById('pauseBtn'), resetBtn: document.getElementById('resetBtn'), randomBtn: document.getElementById('randomBtn'),
-    precisionBtn: document.getElementById('precisionBtn')
-};
+const ui = {}; // 初期化時に格納
 
 let bodies = [], particles = [], zoom = 0.5, offset = { x: 0, y: 0 }, isDragging = false, startPos = null, currentPos = null, lastPinchDist = 0, lastMidPoint = null, isPaused = false, bodyCounter = 0, supernovaTimer = 0, supernovaActive = false, supernovaTargetId = null, flashAlpha = 0, animFrame = 0, isSNEnabled = true, showLabels = true, isHighPrecision = true;
 const G = 1;
 
-// 質量バランスを完全に再設計 (Sun:Jupiter = 1000:1 ベース)
 const PRESETS = {
-    sun: { m: 50000, c: '#ffcc00', n: "太陽" },
-    mercury: { m: 0.015, c: '#aaaaaa', n: "水星" },
-    venus: { m: 0.12, c: '#ffddaa', n: "金星" },
-    earth: { m: 0.15, c: '#44aaff', n: "地球" },
-    mars: { m: 0.015, c: '#ff6644', n: "火星" },
-    jupiter: { m: 50, c: '#ffcc99', n: "木星" },
-    saturn: { m: 15, c: '#eeddaa', n: "土星", r: "h" },
-    uranus: { m: 2.5, c: '#50c878', n: "天王星", r: "v" },
-    neptune: { m: 3.0, c: '#120a8f', n: "海王星" },
-    pluto: { m: 0.003, c: '#ccbbbb', n: "冥王星" }
+    sun: { m: 50000, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.015, c: '#aaaaaa', n: "水星" }, venus: { m: 0.12, c: '#ffddaa', n: "金星" }, earth: { m: 0.15, c: '#44aaff', n: "地球" }, mars: { m: 0.015, c: '#ff6644', n: "火星" }, jupiter: { m: 50, c: '#ffcc99', n: "木星" }, saturn: { m: 15, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 2.5, c: '#50c878', n: "天王星", r: "v" }, neptune: { m: 3.0, c: '#120a8f', n: "海王星" }, pluto: { m: 0.003, c: '#ccbbbb', n: "冥王星" }
 };
 
 function lerpColor(c1, c2, f) {
@@ -102,26 +86,15 @@ class Body {
         this.isBlackHole = false; this.updateRadius();
     }
     updateRadius() {
-        // 見た目のサイズを質量に対して対数的に調整 (重力バランスを壊さず見やすくする)
         const visualMass = this.isMoon ? this.mass * 10 : this.mass;
-        const scale = this.isBlackHole ? 1.0 : (this.isMoon ? 0.6 : 1.8);
-        this.radius = Math.max(0.8, Math.pow(visualMass, 1/3) * scale);
+        this.radius = Math.max(0.8, Math.pow(visualMass, 1/3) * (this.isBlackHole ? 1.0 : (this.isMoon ? 0.6 : 1.8)));
         if (!this.isBlackHole && this.mass >= 100 && !this.isPreset) this.color = getColorByMass(this.mass);
     }
     draw() {
         const sx = (this.x - offset.x) * zoom + canvas.width / 2, sy = (this.y - offset.y) * zoom + canvas.height / 2;
         const sr = Math.max(this.isMoon ? 0.2 : 1.0, this.radius * zoom);
         let alpha = this.isMoon ? Math.min(1.0, zoom * 1.5) : 1.0;
-        
-        if (supernovaActive && this.id === supernovaTargetId) {
-            const blink = 0.5 + Math.sin(Date.now() * 0.02) * 0.5;
-            ctx.shadowBlur = 20 * zoom; ctx.shadowColor = "red";
-            ctx.globalAlpha = alpha * (0.5 + blink * 0.5);
-        } else {
-            ctx.globalAlpha = alpha;
-            ctx.shadowBlur = 0;
-        }
-
+        ctx.globalAlpha = alpha;
         if (this.isBlackHole) { this.drawGargantua(sx, sy, sr); }
         else {
             if (this.ringType === "h") {
@@ -131,9 +104,6 @@ class Body {
             }
             ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
         }
-        
-        ctx.shadowBlur = 0;
-
         if (showLabels && !this.isBlackHole) {
             let showThisLabel = this.isMoon ? zoom > 0.8 : true;
             if (showThisLabel) {
@@ -155,530 +125,71 @@ class Body {
     }
 }
 
-function addKeplerBody(parent, dist, mass, color, name, ringType = null, isMoon = false, isPreset = false) {
-    const angle = Math.random() * Math.PI * 2;
-    const x = parent.x + Math.cos(angle) * dist, y = parent.y + Math.sin(angle) * dist;
-    // 重力を安定させるため質量を合成して初速計算: v = sqrt(G(M+m)/r)
-    const speed = Math.sqrt((G * (parent.mass + mass)) / dist);
-    const vx = parent.vx - Math.sin(angle) * speed, vy = parent.vy + Math.cos(angle) * speed;
-    const body = new Body(x, y, vx, vy, mass, color, name, ringType, isMoon, isPreset);
-    bodies.push(body); return body;
-}
-
 function initSolarSystem() {
-    bodyCounter = 0; supernovaActive = false; supernovaTargetId = null; supernovaTimer = 0; bodies = [];
+    bodyCounter = 0; supernovaActive = false; supernovaTargetId = null; bodies = [];
     const sun = new Body(0, 0, 0, 0, 50000, '#ffcc00', "太陽", null, false, false); bodies.push(sun);
-    // 惑星・衛星データを再構築 (ヒル球を考慮)
-    const data = [
-        [200, 0.015, '#aaaaaa', "水星", null, []], [350, 0.12, '#ffddaa', "金星", null, []],
-        [500, 0.15, '#44aaff', "地球", null, [[20, 0.005, "#b0b0b0", "月"]]],
-        [750, 0.015, '#ff6644', "火星", null, []],
-        [1200, 50, '#ffcc99', "木星", null, [[45, 0.5, "#e2d06e", "イオ"], [65, 0.5, "#a0a0a0", "エウロパ"], [90, 0.8, "#7a7a7a", "ガニメデ"]]],
-        [1800, 15, '#eeddaa', "土星", "h", [[110, 0.5, "#d2a01e", "タイタン"]]],
-        [2400, 2.5, '#50c878', "天王星", "v", []], [3000, 3.0, '#120a8f', "海王星", null, [[100, 0.4, "#90a0b0", "トリトン"]]]
-    ];
-    data.forEach(p => { 
-        const planet = addKeplerBody(sun, p[0], p[1], p[2], p[3], p[4], false, true); 
-        p[5].forEach(m => addKeplerBody(planet, m[0], m[1], m[2], m[3], null, true, false)); 
-    });
+    const data = [[200, 0.015, '#aaaaaa', "水星", null, []], [350, 0.12, '#ffddaa', "金星", null, []], [500, 0.15, '#44aaff', "地球", null, [[20, 0.005, "#b0b0b0", "月"]]], [750, 0.015, '#ff6644', "火星", null, []], [1200, 50, '#ffcc99', "木星", null, [[45, 0.5, "#e2d06e", "イオ"], [65, 0.5, "#a0a0a0", "エウロパ"], [90, 0.8, "#7a7a7a", "ガニメデ"]]], [1800, 15, '#eeddaa', "土星", "h", [[110, 0.5, "#d2a01e", "タイタン"]]], [2400, 2.5, '#50c878', "天王星", "v", []], [3000, 3.0, '#120a8f', "海王星", null, [[100, 0.4, "#90a0b0", "トリトン"]]]];
+    data.forEach(p => { const planet = addKeplerBody(sun, p[0], p[1], p[2], p[3], p[4], false, true); p[5].forEach(m => addKeplerBody(planet, m[0], m[1], m[2], m[3], null, true, false)); });
     updateSelect();
-}
-
-function generateRandomSystem() {
-    bodyCounter = 0; supernovaActive = false; supernovaTargetId = null; bodies = [];
-    const sun = new Body(0, 0, 0, 0, 40000 + Math.random()*20000, '#fff', generateName()); bodies.push(sun);
-    for (let i = 0; i < 12; i++) {
-        const p = addKeplerBody(sun, 600 + Math.random()*2500, 0.01 + Math.random()*100, `hsl(${Math.random()*360},70%,60%)`, generateName(), null, false, false);
-        if (Math.random() < 0.4) addKeplerBody(p, 50 + Math.random()*60, 0.01 + Math.random()*5, "#a0a0a0", generateName(), null, true, false);
-    }
-    updateSelect();
-}
-
-function handleReset(isGacha = false) {
-    const currentId = parseInt(ui.targetSelect.value), currentTarget = bodies.find(b => b.id === currentId), targetName = currentTarget ? currentTarget.name : null;
-    if (isGacha) generateRandomSystem(); else initSolarSystem();
-    if (targetName) { const newTarget = bodies.find(b => b.name === targetName); if (newTarget) ui.targetSelect.value = newTarget.id; }
-    updateSelect();
-}
-
-function loop() {
-    const timeScale = ui.timeRange ? parseFloat(ui.timeRange.value) : 1;
-    if (!isPaused) {
-        // 🎯精度モードを128回に超強化！
-        const subSteps = isHighPrecision ? 128 : 1;
-        const dt = (timeScale * 0.4) / subSteps; 
-
-        for (let s = 0; s < subSteps; s++) {
-            for (let i = 0; i < bodies.length; i++) {
-                const b1 = bodies[i];
-                for (let j = i + 1; j < bodies.length; j++) {
-                    const b2 = bodies[j];
-                    const dx = b2.x - b1.x, dy = b2.y - b1.y, d2 = dx*dx + dy*dy + 0.001, d = Math.sqrt(d2);
-                    const f = (G * b1.mass * b2.mass) / d2;
-                    // 半一斉オイラー法に向けた加速計算
-                    b1.vx += (f * dx / d) / b1.mass * dt; b1.vy += (f * dy / d) / b1.mass * dt;
-                    b2.vx -= (f * dx / d) / b2.mass * dt; b2.vy -= (f * dy / d) / b2.mass * dt;
-                }
-            }
-            for (let i = 0; i < bodies.length; i++) {
-                const b1 = bodies[i]; b1.x += b1.vx * dt; b1.y += b1.vy * dt;
-                if (b1.isBlackHole) {
-                    for (let j = 0; j < bodies.length; j++) {
-                        if (i === j) continue;
-                        const b2 = bodies[j], dx = b1.x - b2.x, dy = b1.y - b2.y, d = Math.sqrt(dx*dx + dy*dy);
-                        if (d < b1.radius * 1.5) { bodies.splice(j, 1); updateSelect(); if (j < i) i--; j--; }
-                    }
-                }
-            }
-        }
-        // 衝突合体判定 (運動量保存)
-        if (ui.physicsMode.value === 'collision') {
-            for (let i = 0; i < bodies.length; i++) {
-                for (let j = i + 1; j < bodies.length; j++) {
-                    const b1 = bodies[i], b2 = bodies[j], dx = b2.x - b1.x, dy = b2.y - b1.y, d = Math.sqrt(dx*dx + dy*dy);
-                    if (d < (b1.radius + b2.radius)) {
-                        for (let k = 0; k < 10; k++) particles.push(new Particle(b1.x + dx/2, b1.y + dy/2, (Math.random()-0.5)*30, (Math.random()-0.5)*30, b1.color));
-                        const totalM = b1.mass + b2.mass;
-                        b1.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/totalM; b1.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/totalM;
-                        b1.x = (b1.x*b1.mass + b2.x*b2.mass)/totalM; b1.y = (b1.y*b1.mass + b2.y*b2.mass)/totalM;
-                        b1.mass = totalM; b1.updateRadius(); if (!b1.name.endsWith("系")) b1.name += "系";
-                        bodies.splice(j, 1); updateSelect(); j--;
-                    }
-                }
-            }
-        }
-        // 超新星ターゲット管理
-        if (isSNEnabled) {
-            if (!supernovaActive) {
-                const massive = bodies.find(b => b.mass >= 200000 && !b.isBlackHole);
-                if (massive) { supernovaActive = true; supernovaTargetId = massive.id; supernovaTimer = 10; }
-            } else {
-                const target = bodies.find(b => b.id === supernovaTargetId);
-                if (!target || target.isBlackHole) { supernovaActive = false; supernovaTargetId = null; }
-            }
-        }
-    }
-    if (supernovaActive && !isPaused) { 
-        supernovaTimer -= (1/60) * timeScale; 
-        if (supernovaTimer <= 0) { 
-            flashAlpha = 1.0; 
-            const target = bodies.find(b => b.id === supernovaTargetId);
-            if (target) { target.isBlackHole = true; target.name = "ブラックホール"; target.updateRadius(); }
-            supernovaActive = false; supernovaTargetId = null;
-        } 
-    }
-    ctx.fillStyle = '#000208'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const target = bodies.find(b => b.id === parseInt(ui.targetSelect.value)); if (target) { offset.x = target.x; offset.y = target.y; }
-    bodies.forEach(b => b.draw()); particles = particles.filter(p => p.update(1/60)); particles.forEach(p => p.draw());
-    if (supernovaActive) { ctx.fillStyle = "#ff4444"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center"; ctx.fillText("⚠️ 重力崩壊まで: " + Math.max(0, supernovaTimer).toFixed(1) + "s", canvas.width/2, 50); }
-    if (flashAlpha > 0) { ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`; ctx.fillRect(0,0,canvas.width, canvas.height); flashAlpha -= 0.05; }
-    if (isDragging && startPos && currentPos) { ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(currentPos.x, currentPos.y); ctx.strokeStyle = '#ffff00'; ctx.stroke(); }
-    requestAnimationFrame(loop);
-}
-
-function updateSelect() { const v = ui.targetSelect.value; ui.targetSelect.innerHTML = '<option value="-1">🔭 自由視点 (Free View)</option>'; bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = (b.isBlackHole?"🕳️ ":"🪐 ") + b.name; if(b.id==v) o.selected=true; ui.targetSelect.appendChild(o); }); }
-ui.resetBtn.onclick = () => handleReset(false); ui.randomBtn.onclick = () => handleReset(true);
-ui.pauseBtn.onclick = () => { isPaused = !isPaused; ui.pauseBtn.textContent = isPaused ? "▶️" : "⏸️"; };
-ui.snBtn.onclick = () => { isSNEnabled = !isSNEnabled; ui.snBtn.style.background = isSNEnabled ? "#b06000" : "#333"; if(!isSNEnabled){ supernovaActive=false; supernovaTargetId=null; } };
-ui.labelBtn.onclick = () => { showLabels = !showLabels; ui.labelBtn.style.background = showLabels ? "#0060b0" : "#333"; };
-ui.precisionBtn.onclick = () => { isHighPrecision = !isHighPrecision; ui.precisionBtn.style.background = isHighPrecision ? "#00b060" : "#333"; };
-
-canvas.addEventListener('touchstart', (e) => { if (e.touches.length === 1) { isDragging = true; startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; currentPos = startPos; } else if (e.touches.length === 2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); lastMidPoint = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; } }, { passive: false });
-canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (e.touches.length === 1 && isDragging) { currentPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } else if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); zoom *= (d / lastPinchDist); zoom = Math.min(Math.max(zoom, 0.001), 20); lastPinchDist = d; if (ui.targetSelect.value == "-1") { const m = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; offset.x -= (m.x - lastMidPoint.x)/zoom; offset.y -= (m.y - lastMidPoint.y)/zoom; lastMidPoint = m; } } }, { passive: false });
-canvas.addEventListener('touchend', (e) => {
-    if (isDragging && startPos && currentPos) {
-        const sx = (startPos.x - canvas.width/2)/zoom + offset.x, sy = (startPos.y - canvas.height/2)/zoom + offset.y;
-        const config = PRESETS[ui.launchType.value], multiplier = parseFloat(ui.massRange.value);
-        bodies.push(new Body(sx, sy, (currentPos.x - startPos.x)*0.05/zoom, (currentPos.y - startPos.y)*0.05/zoom, config.m * multiplier, config.c, config.n, config.r, false, false)); updateSelect();
-    }
-    isDragging = false;
-});
-window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
-canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-initSolarSystem(); requestAnimationFrame(loop);
-</script>
-</body>
-</html>
-        
-        // 超新星明滅演出
-        if (supernovaActive && this.id === supernovaTargetId) {
-            const blink = 0.5 + Math.sin(Date.now() * 0.02) * 0.5;
-            ctx.shadowBlur = 20 * zoom; ctx.shadowColor = "red";
-            ctx.globalAlpha = alpha * (0.5 + blink * 0.5);
-        } else {
-            ctx.globalAlpha = alpha;
-            ctx.shadowBlur = 0;
-        }
-
-        if (this.isBlackHole) { this.drawGargantua(sx, sy, sr); }
-        else {
-            if (this.ringType === "h") {
-                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.8, sr * 0.8, 0.4, 0, Math.PI * 2); ctx.strokeStyle = `rgba(200, 180, 150, ${alpha * 0.4})`; ctx.lineWidth = 2 * zoom; ctx.stroke();
-            } else if (this.ringType === "v") {
-                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.5, sr * 0.6, 1.4, 0, Math.PI * 2); ctx.strokeStyle = `rgba(180, 220, 255, ${alpha * 0.4})`; ctx.lineWidth = 1 * zoom; ctx.stroke();
-            }
-            ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
-        }
-        
-        ctx.shadowBlur = 0; // Reset shadow
-
-        if (showLabels && !this.isBlackHole) {
-            let showThisLabel = this.isMoon ? zoom > 0.8 : true;
-            if (showThisLabel) {
-                ctx.globalAlpha = this.isMoon ? Math.min(1.0, (zoom - 0.8) * 5) : 1.0;
-                ctx.fillStyle = "white"; ctx.font = `${this.isMoon?9:12}px sans-serif`; ctx.textAlign = "center"; ctx.fillText(this.name, sx, sy - sr - 5);
-            }
-        }
-        ctx.globalAlpha = 1.0;
-    }
-    drawGargantua(sx, sy, sr) {
-        animFrame += 0.02; ctx.save();
-        const glowGrad = ctx.createRadialGradient(sx, sy, sr, sx, sy, sr * 5);
-        glowGrad.addColorStop(0, "rgba(255, 220, 100, 0.5)"); glowGrad.addColorStop(1, "rgba(255, 50, 0, 0)");
-        ctx.beginPath(); ctx.ellipse(sx, sy, sr * 4, sr * 2, 0, 0, Math.PI * 2); ctx.fillStyle = glowGrad; ctx.fill();
-        const diskGrad = ctx.createLinearGradient(sx - sr*5, sy, sx + sr*4, sy);
-        diskGrad.addColorStop(0, "rgba(255, 100, 0, 0)"); diskGrad.addColorStop(0.5, "rgba(255, 255, 220, 0.9)"); diskGrad.addColorStop(1, "rgba(255, 100, 0, 0)");
-        ctx.beginPath(); ctx.ellipse(sx, sy, sr * 5, sr * 0.5, Math.sin(animFrame * 0.3) * 0.05, 0, Math.PI * 2); ctx.strokeStyle = diskGrad; ctx.lineWidth = sr * 0.4; ctx.stroke();
-        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();
-    }
 }
 
 function addKeplerBody(parent, dist, mass, color, name, ringType = null, isMoon = false, isPreset = false) {
     const angle = Math.random() * Math.PI * 2;
-    const x = parent.x + Math.cos(angle) * dist, y = parent.y + Math.sin(angle) * dist;
     const speed = Math.sqrt((G * (parent.mass + mass)) / dist);
-    const vx = parent.vx - Math.sin(angle) * speed, vy = parent.vy + Math.cos(angle) * speed;
-    const body = new Body(x, y, vx, vy, mass, color, name, ringType, isMoon, isPreset);
-    bodies.push(body); return body;
+    return new Body(parent.x + Math.cos(angle)*dist, parent.y + Math.sin(angle)*dist, parent.vx - Math.sin(angle)*speed, parent.vy + Math.cos(angle)*speed, mass, color, name, ringType, isMoon, isPreset);
 }
 
-function initSolarSystem() {
-    bodyCounter = 0; supernovaActive = false; supernovaTargetId = null; supernovaTimer = 0; bodies = [];
-    const sun = new Body(0, 0, 0, 0, 25000, '#ffcc00', "太陽", null, false, false); bodies.push(sun);
-    const data = [[180, 0.1, '#aaaaaa', "水星", null, []], [280, 0.8, '#ffddaa', "金星", null, []], [400, 120, '#44aaff', "地球", null, [[15, 1, "#b0b0b0", "月"]]], [580, 80, '#ff6644', "火星", null, []], [1100, 1800, '#ffcc99', "木星", null, [[32, 10, "#e2d06e", "イオ"], [48, 10, "#a0a0a0", "エウロパ"], [68, 15, "#7a7a7a", "ガニメデ"]]], [1600, 1200, '#eeddaa', "土星", "h", [[85, 12, "#d2a01e", "タイタン"]]], [2200, 600, '#50c878', "天王星", "v", []], [2800, 600, '#120a8f', "海王星", null, [[70, 10, "#90a0b0", "トリトン"]]]];
-    data.forEach(p => { 
-        const planet = addKeplerBody(sun, p[0], p[1], p[2], p[3], p[4], false, true); 
-        p[5].forEach(m => addKeplerBody(planet, m[0], m[1], m[2], m[3], null, true, false)); 
-    });
-    updateSelect();
-}
-
-const NAMES = { p1: ["ゼウス", "アエテルナ", "ベスタ", "ノヴァ", "オシリス", "テラ", "ヘリオス", "クロノス", "ガイア", "アイテール"], p2: ["・プライム", "・ベータ", "・マギナ", "・オリジン", "・ヴォイド", "・コア", "・零", "・ノア", "・エデン"] };
-function generateName() { return NAMES.p1[Math.floor(Math.random()*NAMES.p1.length)] + NAMES.p2[Math.floor(Math.random()*NAMES.p2.length)]; }
-
-function generateRandomSystem() {
-    bodyCounter = 0; supernovaActive = false; supernovaTargetId = null; bodies = [];
-    const isBinary = Math.random() < 0.2; let sun;
-    if (isBinary) {
-        if (Math.random() < 0.5) {
-            sun = new Body(0, 0, 0, 0, 25000, getColorByMass(25000), generateName()); bodies.push(sun);
-            addKeplerBody(sun, 250, 5000, getColorByMass(5000), generateName());
-        } else {
-            const mA = 15000, mB = 15000, d = 250, v = Math.sqrt(G * (mA+mB)/d) * 0.5;
-            bodies.push(new Body(-d/2, 0, 0, v, mA, getColorByMass(mA), generateName()));
-            sun = new Body(d/2, 0, 0, -v, mB, getColorByMass(mB), generateName()); bodies.push(sun);
-        }
-    } else {
-        sun = new Body(0, 0, 0, 0, 20000 + Math.random()*15000, '#fff', generateName()); bodies.push(sun);
-    }
-    for (let i = 0; i < 10; i++) {
-        const p = addKeplerBody(sun, 600 + Math.random()*2200, 100 + Math.random()*1000, `hsl(${Math.random()*360},70%,60%)`, generateName(), null, false, false);
-        if (Math.random() < 0.4) addKeplerBody(p, 45 + Math.random()*55, 5 + Math.random()*20, "#a0a0a0", generateName(), null, true, false);
-    }
-    updateSelect();
-}
-
-function handleReset(isGacha = false) {
-    const currentId = parseInt(ui.targetSelect.value), currentTarget = bodies.find(b => b.id === currentId), targetName = currentTarget ? currentTarget.name : null;
-    if (isGacha) generateRandomSystem(); else initSolarSystem();
-    if (targetName) { const newTarget = bodies.find(b => b.name === targetName); if (newTarget) ui.targetSelect.value = newTarget.id; }
-    updateSelect();
-}
+function updateSelect() { ui.targetSelect.innerHTML = '<option value="-1">🔭 自由視点</option>'; bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = (b.isBlackHole?"🕳️ ":"🪐 ") + b.name; ui.targetSelect.appendChild(o); }); }
 
 function loop() {
-    const timeScale = ui.timeRange ? parseFloat(ui.timeRange.value) : 1;
+    const timeScale = parseFloat(ui.timeRange.value);
     if (!isPaused) {
-        // 🎯精度モードを32回に強化！
-        const subSteps = isHighPrecision ? 32 : 1;
-        const dt = (timeScale * 0.5) / subSteps; 
-
+        const subSteps = isHighPrecision ? 128 : 32;
+        const dt = (timeScale * 0.4) / subSteps;
         for (let s = 0; s < subSteps; s++) {
             for (let i = 0; i < bodies.length; i++) {
                 const b1 = bodies[i];
                 for (let j = i + 1; j < bodies.length; j++) {
                     const b2 = bodies[j];
-                    const dx = b2.x - b1.x, dy = b2.y - b1.y, d2 = dx*dx + dy*dy + 0.05, d = Math.sqrt(d2);
+                    const dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx + dy*dy + 0.1, d = Math.sqrt(d2);
                     const f = (G * b1.mass * b2.mass) / d2;
                     b1.vx += (f * dx / d) / b1.mass * dt; b1.vy += (f * dy / d) / b1.mass * dt;
                     b2.vx -= (f * dx / d) / b2.mass * dt; b2.vy -= (f * dy / d) / b2.mass * dt;
                 }
             }
-            for (let i = 0; i < bodies.length; i++) {
-                const b1 = bodies[i]; b1.x += b1.vx * dt; b1.y += b1.vy * dt;
-                if (b1.isBlackHole) {
-                    for (let j = 0; j < bodies.length; j++) {
-                        if (i === j) continue;
-                        const b2 = bodies[j], dx = b1.x - b2.x, dy = b1.y - b2.y, d = Math.sqrt(dx*dx + dy*dy);
-                        if (d < b1.radius * 1.5) { bodies.splice(j, 1); updateSelect(); if (j < i) i--; j--; }
-                    }
-                }
-            }
+            bodies.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; });
         }
-        // 衝突判定
+        // 衝突 & SN判定 (毎フレーム)
         for (let i = 0; i < bodies.length; i++) {
             for (let j = i + 1; j < bodies.length; j++) {
-                const b1 = bodies[i], b2 = bodies[j], dx = b2.x - b1.x, dy = b2.y - b1.y, d = Math.sqrt(dx*dx + dy*dy);
+                const b1 = bodies[i], b2 = bodies[j], dx = b2.x-b1.x, dy = b2.y-b1.y, d = Math.sqrt(dx*dx+dy*dy);
                 if (d < (b1.radius + b2.radius)) {
-                    for (let k = 0; k < 10; k++) particles.push(new Particle(b1.x + dx/2, b1.y + dy/2, (Math.random()-0.5)*30, (Math.random()-0.5)*30, b1.color));
                     if (ui.physicsMode.value === 'collision') {
-                        const totalM = b1.mass + b2.mass;
-                        b1.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/totalM; b1.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/totalM;
-                        b1.x = (b1.x*b1.mass + b2.x*b2.mass)/totalM; b1.y = (b1.y*b1.mass + b2.y*b2.mass)/totalM;
-                        b1.mass = totalM; b1.updateRadius(); if (!b1.name.endsWith("系")) b1.name += "系";
-                        bodies.splice(j, 1); updateSelect(); j--;
+                        const m = b1.mass + b2.mass;
+                        b1.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/m; b1.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/m;
+                        b1.mass = m; b1.updateRadius(); bodies.splice(j, 1); updateSelect(); j--;
                     }
                 }
             }
         }
-        // 🛡️超新星爆発のターゲット追跡
-        if (isSNEnabled) {
-            if (!supernovaActive) {
-                const massive = bodies.find(b => b.mass >= 100000 && !b.isBlackHole);
-                if (massive) { 
-                    supernovaActive = true; 
-                    supernovaTargetId = massive.id;
-                    supernovaTimer = 10; 
-                }
-            } else {
-                // ターゲットがまだ存在するか確認
-                const target = bodies.find(b => b.id === supernovaTargetId);
-                if (!target || target.isBlackHole) {
-                    supernovaActive = false;
-                    supernovaTargetId = null;
-                }
-            }
-        }
-    }
-    if (supernovaActive && !isPaused) { 
-        supernovaTimer -= (1/60) * timeScale; 
-        if (supernovaTimer <= 0) { 
-            flashAlpha = 1.0; 
-            const target = bodies.find(b => b.id === supernovaTargetId);
-            if (target) {
-                target.isBlackHole = true; target.name = "ブラックホール"; target.updateRadius(); 
-            }
-            supernovaActive = false; supernovaTargetId = null;
-        } 
     }
     ctx.fillStyle = '#000208'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const target = bodies.find(b => b.id === parseInt(ui.targetSelect.value)); 
+    const target = bodies.find(b => b.id === parseInt(ui.targetSelect.value));
     if (target) { offset.x = target.x; offset.y = target.y; }
-    bodies.forEach(b => b.draw()); 
-    particles = particles.filter(p => p.update(1/60)); particles.forEach(p => p.draw());
-    if (supernovaActive) {
-        ctx.fillStyle = "#ff4444"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("⚠️ 重力崩壊まで: " + Math.max(0, supernovaTimer).toFixed(1) + "s", canvas.width/2, 50);
-    }
-    if (flashAlpha > 0) { ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`; ctx.fillRect(0,0,canvas.width, canvas.height); flashAlpha -= 0.05; }
-    if (isDragging && startPos && currentPos) { ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(currentPos.x, currentPos.y); ctx.strokeStyle = '#ffff00'; ctx.stroke(); }
+    bodies.forEach(b => b.draw());
     requestAnimationFrame(loop);
 }
 
-function updateSelect() { 
-    const v = ui.targetSelect.value; ui.targetSelect.innerHTML = '<option value="-1">🔭 自由視点 (Free View)</option>'; 
-    bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = (b.isBlackHole?"🕳️ ":"🪐 ") + b.name; if(b.id==v) o.selected=true; ui.targetSelect.appendChild(o); }); 
-}
-
-ui.resetBtn.onclick = () => handleReset(false); ui.randomBtn.onclick = () => handleReset(true);
-ui.pauseBtn.onclick = () => { isPaused = !isPaused; ui.pauseBtn.textContent = isPaused ? "▶️" : "⏸️"; };
-ui.snBtn.onclick = () => { isSNEnabled = !isSNEnabled; ui.snBtn.style.background = isSNEnabled ? "#b06000" : "#333"; if(!isSNEnabled){ supernovaActive=false; supernovaTargetId=null; } };
-ui.labelBtn.onclick = () => { showLabels = !showLabels; ui.labelBtn.style.background = showLabels ? "#0060b0" : "#333"; };
-ui.precisionBtn.onclick = () => { isHighPrecision = !isHighPrecision; ui.precisionBtn.style.background = isHighPrecision ? "#00b060" : "#333"; };
-
-canvas.addEventListener('touchstart', (e) => { if (e.touches.length === 1) { isDragging = true; startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; currentPos = startPos; } else if (e.touches.length === 2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); lastMidPoint = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; } }, { passive: false });
-canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (e.touches.length === 1 && isDragging) { currentPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } else if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); zoom *= (d / lastPinchDist); zoom = Math.min(Math.max(zoom, 0.001), 20); lastPinchDist = d; if (ui.targetSelect.value == "-1") { const m = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; offset.x -= (m.x - lastMidPoint.x)/zoom; offset.y -= (m.y - lastMidPoint.y)/zoom; lastMidPoint = m; } } }, { passive: false });
-canvas.addEventListener('touchend', (e) => {
-    if (isDragging && startPos && currentPos) {
-        const sx = (startPos.x - canvas.width/2)/zoom + offset.x, sy = (startPos.y - canvas.height/2)/zoom + offset.y;
-        const config = PRESETS[ui.launchType.value], multiplier = parseFloat(ui.massRange.value);
-        bodies.push(new Body(sx, sy, (currentPos.x - startPos.x)*0.05/zoom, (currentPos.y - startPos.y)*0.05/zoom, config.m * multiplier, config.c, config.n, config.r, false, false)); updateSelect();
-    }
-    isDragging =         ctx.globalAlpha = alpha;
-        if (this.isBlackHole) { this.drawGargantua(sx, sy, sr); }
-        else {
-            if (this.ringType === "h") {
-                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.8, sr * 0.8, 0.4, 0, Math.PI * 2); ctx.strokeStyle = `rgba(200, 180, 150, ${alpha * 0.4})`; ctx.lineWidth = 2 * zoom; ctx.stroke();
-            } else if (this.ringType === "v") {
-                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.5, sr * 0.6, 1.4, 0, Math.PI * 2); ctx.strokeStyle = `rgba(180, 220, 255, ${alpha * 0.4})`; ctx.lineWidth = 1 * zoom; ctx.stroke();
-            }
-            ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
-        }
-        if (showLabels && !this.isBlackHole) {
-            let showThisLabel = this.isMoon ? zoom > 0.8 : true;
-            if (showThisLabel) {
-                ctx.globalAlpha = this.isMoon ? Math.min(1.0, (zoom - 0.8) * 5) : 1.0;
-                ctx.fillStyle = "white"; ctx.font = `${this.isMoon?9:12}px sans-serif`; ctx.textAlign = "center"; ctx.fillText(this.name, sx, sy - sr - 5);
-            }
-        }
-        ctx.globalAlpha = 1.0;
-    }
-    drawGargantua(sx, sy, sr) {
-        animFrame += 0.02; ctx.save();
-        const glowGrad = ctx.createRadialGradient(sx, sy, sr, sx, sy, sr * 5);
-        glowGrad.addColorStop(0, "rgba(255, 220, 100, 0.5)"); glowGrad.addColorStop(1, "rgba(255, 50, 0, 0)");
-        ctx.beginPath(); ctx.ellipse(sx, sy, sr * 4, sr * 2, 0, 0, Math.PI * 2); ctx.fillStyle = glowGrad; ctx.fill();
-        const diskGrad = ctx.createLinearGradient(sx - sr*5, sy, sx + sr*4, sy);
-        diskGrad.addColorStop(0, "rgba(255, 100, 0, 0)"); diskGrad.addColorStop(0.5, "rgba(255, 255, 220, 0.9)"); diskGrad.addColorStop(1, "rgba(255, 100, 0, 0)");
-        ctx.beginPath(); ctx.ellipse(sx, sy, sr * 5, sr * 0.5, Math.sin(animFrame * 0.3) * 0.05, 0, Math.PI * 2); ctx.strokeStyle = diskGrad; ctx.lineWidth = sr * 0.4; ctx.stroke();
-        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();
-    }
-}
-
-function addKeplerBody(parent, dist, mass, color, name, ringType = null, isMoon = false, isPreset = false) {
-    const angle = Math.random() * Math.PI * 2;
-    const x = parent.x + Math.cos(angle) * dist, y = parent.y + Math.sin(angle) * dist;
-    const speed = Math.sqrt((G * (parent.mass + mass)) / dist);
-    const vx = parent.vx - Math.sin(angle) * speed, vy = parent.vy + Math.cos(angle) * speed;
-    const body = new Body(x, y, vx, vy, mass, color, name, ringType, isMoon, isPreset);
-    bodies.push(body); return body;
-}
-
-function initSolarSystem() {
-    bodyCounter = 0; supernovaActive = false; supernovaTimer = 0; bodies = [];
-    const sun = new Body(0, 0, 0, 0, 25000, '#ffcc00', "太陽", null, false, false); bodies.push(sun);
-    const data = [[180, 0.1, '#aaaaaa', "水星", null, []], [280, 0.8, '#ffddaa', "金星", null, []], [400, 120, '#44aaff', "地球", null, [[15, 1, "#b0b0b0", "月"]]], [580, 80, '#ff6644', "火星", null, []], [1100, 1800, '#ffcc99', "木星", null, [[32, 10, "#e2d06e", "イオ"], [48, 10, "#a0a0a0", "エウロパ"], [68, 15, "#7a7a7a", "ガニメデ"]]], [1600, 1200, '#eeddaa', "土星", "h", [[85, 12, "#d2a01e", "タイタン"]]], [2200, 600, '#50c878', "天王星", "v", []], [2800, 600, '#120a8f', "海王星", null, [[70, 10, "#90a0b0", "トリトン"]]]];
-    data.forEach(p => { 
-        const planet = addKeplerBody(sun, p[0], p[1], p[2], p[3], p[4], false, true); 
-        p[5].forEach(m => addKeplerBody(planet, m[0], m[1], m[2], m[3], null, true, false)); 
-    });
-    updateSelect();
-}
-
-const NAMES = { p1: ["ゼウス", "アエテルナ", "ベスタ", "ノヴァ", "オシリス", "テラ", "ヘリオス", "クロノス", "ガイア", "アイテール"], p2: ["・プライム", "・ベータ", "・マギナ", "・オリジン", "・ヴォイド", "・コア", "・零", "・ノア", "・エデン"] };
-function generateName() { return NAMES.p1[Math.floor(Math.random()*NAMES.p1.length)] + NAMES.p2[Math.floor(Math.random()*NAMES.p2.length)]; }
-
-function generateRandomSystem() {
-    bodyCounter = 0; supernovaActive = false; bodies = [];
-    const isBinary = Math.random() < 0.2; let sun;
-    if (isBinary) {
-        if (Math.random() < 0.5) {
-            sun = new Body(0, 0, 0, 0, 25000, getColorByMass(25000), generateName()); bodies.push(sun);
-            addKeplerBody(sun, 250, 5000, getColorByMass(5000), generateName());
-        } else {
-            const mA = 15000, mB = 15000, d = 250, v = Math.sqrt(G * (mA+mB)/d) * 0.5;
-            bodies.push(new Body(-d/2, 0, 0, v, mA, getColorByMass(mA), generateName()));
-            sun = new Body(d/2, 0, 0, -v, mB, getColorByMass(mB), generateName()); bodies.push(sun);
-        }
-    } else {
-        sun = new Body(0, 0, 0, 0, 20000 + Math.random()*15000, '#fff', generateName()); bodies.push(sun);
-    }
-    for (let i = 0; i < 10; i++) {
-        const p = addKeplerBody(sun, 600 + Math.random()*2200, 100 + Math.random()*1000, `hsl(${Math.random()*360},70%,60%)`, generateName(), null, false, false);
-        if (Math.random() < 0.4) addKeplerBody(p, 45 + Math.random()*55, 5 + Math.random()*20, "#a0a0a0", generateName(), null, true, false);
-    }
-    updateSelect();
-}
-
-function handleReset(isGacha = false) {
-    const currentId = parseInt(ui.targetSelect.value), currentTarget = bodies.find(b => b.id === currentId), targetName = currentTarget ? currentTarget.name : null;
-    if (isGacha) generateRandomSystem(); else initSolarSystem();
-    if (targetName) { const newTarget = bodies.find(b => b.name === targetName); if (newTarget) ui.targetSelect.value = newTarget.id; }
-    updateSelect();
-}
-
-function loop() {
-    const timeScale = ui.timeRange ? parseFloat(ui.timeRange.value) : 1;
-    if (!isPaused) {
-        // 通常モードは1回、精度モードは12回分割。トータルの移動距離を一定に保つ。
-        const subSteps = isHighPrecision ? 12 : 1;
-        // ベース倍率を0.5に引き上げ。時間スライダー(1.5)×ベース(0.5)で秒間移動量を確保。
-        const dt = (timeScale * 0.5) / subSteps; 
-
-        for (let s = 0; s < subSteps; s++) {
-            for (let i = 0; i < bodies.length; i++) {
-                const b1 = bodies[i];
-                for (let j = i + 1; j < bodies.length; j++) {
-                    const b2 = bodies[j];
-                    const dx = b2.x - b1.x, dy = b2.y - b1.y, d2 = dx*dx + dy*dy + 0.1, d = Math.sqrt(d2);
-                    const f = (G * b1.mass * b2.mass) / d2;
-                    b1.vx += (f * dx / d) / b1.mass * dt; b1.vy += (f * dy / d) / b1.mass * dt;
-                    b2.vx -= (f * dx / d) / b2.mass * dt; b2.vy -= (f * dy / d) / b2.mass * dt;
-                }
-            }
-            for (let i = 0; i < bodies.length; i++) {
-                const b1 = bodies[i]; b1.x += b1.vx * dt; b1.y += b1.vy * dt;
-                if (b1.isBlackHole) {
-                    for (let j = 0; j < bodies.length; j++) {
-                        if (i === j) continue;
-                        const b2 = bodies[j], dx = b1.x - b2.x, dy = b1.y - b2.y, d = Math.sqrt(dx*dx + dy*dy);
-                        if (d < b1.radius * 1.5) { bodies.splice(j, 1); updateSelect(); if (j < i) i--; j--; }
-                    }
-                }
-            }
-        }
-        // 衝突判定
-        for (let i = 0; i < bodies.length; i++) {
-            for (let j = i + 1; j < bodies.length; j++) {
-                const b1 = bodies[i], b2 = bodies[j], dx = b2.x - b1.x, dy = b2.y - b1.y, d = Math.sqrt(dx*dx + dy*dy);
-                if (d < (b1.radius + b2.radius)) {
-                    for (let k = 0; k < 10; k++) particles.push(new Particle(b1.x + dx/2, b1.y + dy/2, (Math.random()-0.5)*30, (Math.random()-0.5)*30, b1.color));
-                    if (ui.physicsMode.value === 'collision') {
-                        const totalM = b1.mass + b2.mass;
-                        b1.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/totalM; b1.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/totalM;
-                        b1.x = (b1.x*b1.mass + b2.x*b2.mass)/totalM; b1.y = (b1.y*b1.mass + b2.y*b2.mass)/totalM;
-                        b1.mass = totalM; b1.updateRadius(); if (!b1.name.endsWith("系")) b1.name += "系";
-                        bodies.splice(j, 1); updateSelect(); j--;
-                    }
-                }
-            }
-        }
-        if (isSNEnabled && !supernovaActive) {
-            const massive = bodies.find(b => b.mass >= 100000 && !b.isBlackHole);
-            if (massive) { supernovaActive = true; supernovaTimer = 10; }
-        }
-    }
-    if (supernovaActive && !isPaused) { 
-        supernovaTimer -= (1/60) * timeScale; 
-        if (supernovaTimer <= 0) { 
-            flashAlpha = 1.0; supernovaActive = false; 
-            let massiveBody = bodies.reduce((p, c) => (p.mass > c.mass) ? p : c); 
-            massiveBody.isBlackHole = true; massiveBody.name = "ブラックホール"; massiveBody.updateRadius(); 
-        } 
-    }
-    ctx.fillStyle = '#000208'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const target = bodies.find(b => b.id === parseInt(ui.targetSelect.value)); 
-    if (target) { offset.x = target.x; offset.y = target.y; }
-    bodies.forEach(b => b.draw()); 
-    particles = particles.filter(p => p.update(1/60)); particles.forEach(p => p.draw());
-    if (supernovaActive) {
-        ctx.fillStyle = "#ff4444"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("⚠️ 重力崩壊まで: " + Math.max(0, supernovaTimer).toFixed(1) + "s", canvas.width/2, 50);
-    }
-    if (flashAlpha > 0) { ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`; ctx.fillRect(0,0,canvas.width, canvas.height); flashAlpha -= 0.05; }
-    if (isDragging && startPos && currentPos) { ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(currentPos.x, currentPos.y); ctx.strokeStyle = '#ffff00'; ctx.stroke(); }
-    requestAnimationFrame(loop);
-}
-
-function updateSelect() { const v = ui.targetSelect.value; ui.targetSelect.innerHTML = '<option value="-1">🔭 自由視点 (Free View)</option>'; bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = (b.isBlackHole?"🕳️ ":"🪐 ") + b.name; if(b.id==v) o.selected=true; ui.targetSelect.appendChild(o); }); }
-ui.resetBtn.onclick = () => handleReset(false); ui.randomBtn.onclick = () => handleReset(true);
-ui.pauseBtn.onclick = () => { isPaused = !isPaused; ui.pauseBtn.textContent = isPaused ? "▶️" : "⏸️"; };
-ui.snBtn.onclick = () => { isSNEnabled = !isSNEnabled; ui.snBtn.style.background = isSNEnabled ? "#b06000" : "#333"; };
-ui.labelBtn.onclick = () => { showLabels = !showLabels; ui.labelBtn.style.background = showLabels ? "#0060b0" : "#333"; };
-ui.precisionBtn.onclick = () => { isHighPrecision = !isHighPrecision; ui.precisionBtn.style.background = isHighPrecision ? "#00b060" : "#333"; };
-
-canvas.addEventListener('touchstart', (e) => { if (e.touches.length === 1) { isDragging = true; startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; currentPos = startPos; } else if (e.touches.length === 2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); lastMidPoint = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; } }, { passive: false });
-canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (e.touches.length === 1 && isDragging) { currentPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } else if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); zoom *= (d / lastPinchDist); zoom = Math.min(Math.max(zoom, 0.001), 20); lastPinchDist = d; if (ui.targetSelect.value == "-1") { const m = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; offset.x -= (m.x - lastMidPoint.x)/zoom; offset.y -= (m.y - lastMidPoint.y)/zoom; lastMidPoint = m; } } }, { passive: false });
-canvas.addEventListener('touchend', (e) => {
-    if (isDragging && startPos && currentPos) {
-        const sx = (startPos.x - canvas.width/2)/zoom + offset.x, sy = (startPos.y - canvas.height/2)/zoom + offset.y;
-        const config = PRESETS[ui.launchType.value], multiplier = parseFloat(ui.massRange.value);
-        bodies.push(new Body(sx, sy, (currentPos.x - startPos.x)*0.05/zoom, (currentPos.y - startPos.y)*0.05/zoom, config.m * multiplier, config.c, config.n, config.r, false, false)); updateSelect();
-    }
-    isDragging = false;
-});
-window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
-canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-initSolarSystem(); requestAnimationFrame(loop);
+// 起動処理
+window.onload = () => {
+    ['targetSelect','physicsMode','launchType','massRange','timeRange','pauseBtn','resetBtn','randomBtn','snBtn','labelBtn','precisionBtn'].forEach(id => ui[id] = document.getElementById(id));
+    ui.resetBtn.onclick = () => initSolarSystem();
+    ui.pauseBtn.onclick = () => { isPaused = !isPaused; ui.pauseBtn.textContent = isPaused ? "▶️" : "⏸️"; };
+    ui.precisionBtn.onclick = () => { isHighPrecision = !isHighPrecision; ui.precisionBtn.style.background = isHighPrecision ? "#00b060" : "#333"; };
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    initSolarSystem();
+    loop();
+};
 </script>
 </body>
 </html>
