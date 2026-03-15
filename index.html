@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v21.0</title>
+    <title>Solar Simulator v22.0</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -25,7 +25,7 @@
     </style>
 </head>
 <body>
-<div id="version">v21.0 Precision Scale & Path Subdivision</div>
+<div id="version">v22.0 Orbital Sync & Linear Decay</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
@@ -83,10 +83,10 @@ function getSuffix(n) {
 
 const PRESETS = {
     sun: { m: 1000000, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.166, c: '#aaaaaa', n: "水星" },
-    venus: { m: 2.45, c: '#ffddaa', n: "金星" }, earth: { m: 3.0, c: '#44aaff', n: "地球" },
-    mars: { m: 0.32, c: '#ff6644', n: "火星" }, jupiter: { m: 954, c: '#ffcc99', n: "木星" },
-    saturn: { m: 285, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 43, c: '#50c878', n: "天王星", r: "h" },
-    neptune: { m: 51, c: '#120a8f', n: "海王星" }, pluto: { m: 0.006, c: '#ccbbbb', n: "冥王星" },
+    venus: { m: 2.45, c: '#ffddaa', n: "金星" }, earth: { m: 7200, c: '#44aaff', n: "地球" },
+    mars: { m: 0.64, c: '#ff6644', n: "火星" }, jupiter: { m: 1900, c: '#ffcc99', n: "木星" },
+    saturn: { m: 568, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 86, c: '#50c878', n: "天王星", r: "h" },
+    neptune: { m: 102, c: '#120a8f', n: "海王星" }, pluto: { m: 0.013, c: '#ccbbbb', n: "冥王星" },
     blackhole: { m: 10000000, c: '#000', n: "ブラックホール" }
 };
 
@@ -134,12 +134,12 @@ function computePhysics(bodyList, dt) {
 function initSolarSystem() {
     bodies = []; asteroids = []; bgStars = []; nebulae = []; bodyCounter = 0; addedCount = 0;
     const sun = new Body(0, 0, 0, 0, PRESETS.sun.m, PRESETS.sun.c, "太陽"); bodies.push(sun);
-    for(let i=0; i<20000; i++) bgStars.push({ x: Math.random()*4000, y: Math.random()*4000, s: Math.random()*1.2, c: `rgba(255,255,255,${Math.random()*0.3+0.1})` });
+    for(let i=0; i<20000; i++) bgStars.push({ x: Math.random()*4000, y: Math.random()*4000, s: Math.random()*1.0, c: `rgba(255,255,255,${Math.random()*0.3+0.1})` });
     for(let i=0; i<3; i++) nebulae.push({ x: Math.random()*2000, y: Math.random()*2000, r: 300+Math.random()*400, c: `hsla(${Math.random()*360}, 60%, 45%, 0.1)` });
     const planets = [
         [387, PRESETS.mercury, []], [723, PRESETS.venus, []],
-        [1000, PRESETS.earth, [[35, 0.03, "#b0b0b0", "月"]]],
-        [1524, PRESETS.mars, [[22, 0.0001, "#b59e8a", "フォボス"]]],
+        [1000, PRESETS.earth, [[30, 0.03, "#b0b0b0", "月"]]],
+        [1524, PRESETS.mars, [[18, 0.001, "#b59e8a", "フォボス"]]],
         [5203, PRESETS.jupiter, [[110, 0.45, "#e2d06e", "イオ"],[150, 0.4, "#a0a0a0", "エウロパ"],[200, 0.7, "#7a7a7a", "ガニメデ"]]],
         [9537, PRESETS.saturn, [[200, 0.65, "#d2a01e", "タイタン"]]],
         [19191, PRESETS.uranus, [[120, 0.1, "#b0b0b0", "チタニア"]]],
@@ -175,11 +175,11 @@ function handleGacha() {
         bodies.push(center);
     }
     for (let i=0; i<8; i++) {
-        const d = 1600+Math.random()*5000, m = 0.5+Math.random()*300, a = Math.random()*Math.PI*2, v = Math.sqrt((G*center.mass)/d);
+        const d = 1600+Math.random()*5000, m = 100+Math.random()*1000, a = Math.random()*Math.PI*2, v = Math.sqrt((G*center.mass)/d);
         const p = new Body((center.x||0)+Math.cos(a)*d, (center.y||0)+Math.sin(a)*d, (center.vx||0)-Math.sin(a)*v, (center.vy||0)+Math.cos(a)*v, m, `hsl(${Math.random()*360},70%,60%)`, mutateName(BASE_NAMES[i%BASE_NAMES.length]));
         bodies.push(p);
         if (Math.random() < 0.4) {
-            for(let j=0; j<Math.floor(Math.random()*3)+1; j++) { const mn = new Body(0,0,0,0, m*0.01, "#aaa", p.name+"-S"+j, null, true); mn.parent = p; mn.orbitDist = 45+j*35; mn.angle = Math.random()*Math.PI*2; bodies.push(mn); }
+            for(let j=0; j<Math.floor(Math.random()*3)+1; j++) { const mn = new Body(0,0,0,0, m*0.01, "#aaa", p.name+"-S"+j, null, true); mn.parent = p; mn.orbitDist = 35+j*25; mn.angle = Math.random()*Math.PI*2; bodies.push(mn); }
         }
     }
     offset = {x:center.x||0, y:center.y||0}; updateSelect();
@@ -190,9 +190,7 @@ function loop() {
         const subSteps = isHighPrecision ? 128 : 32; const dt = (parseFloat(document.getElementById('timeRange').value)*0.5)/subSteps;
         for (let s = 0; s < subSteps; s++) {
             computePhysics(bodies, dt);
-            if (showOrbits && s % 8 === 0) { // Subdivide path
-                bodies.forEach(b => { b.history.push({x:b.x, y:b.y}); if (b.history.length > 150) b.history.shift(); });
-            }
+            if (showOrbits && s % 8 === 0) { bodies.forEach(b => { b.history.push({x:b.x, y:b.y}); if (b.history.length > 200) b.history.shift(); }); }
             if (isCollision) {
                 for (let i=0; i<bodies.length; i++) {
                     const b1 = bodies[i]; if (b1.isAnalytic) continue;
@@ -248,10 +246,8 @@ function loop() {
                 ctx.moveTo((p1.x-offset.x)*zoom+canvas.width/2, (p1.y-offset.y)*zoom+canvas.height/2);
                 ctx.lineTo((p2.x-offset.x)*zoom+canvas.width/2, (p2.y-offset.y)*zoom+canvas.height/2);
                 let alpha = 1.0;
-                // Fade from middle to end
-                if (i < len / 2) alpha = i / (len/2);
-                // Slight fade at the very tip (0.9 to 1.0)
-                if (i > len * 0.9) alpha = 1.0 - ((i - len*0.9)/(len*0.1))*0.5;
+                if (i < len / 2) alpha = i / (len/2); // Fade from back
+                if (i > len * 0.9) alpha = 1.0 - ((i - len*0.9)/(len*0.1))*0.5; // Tip fade
                 ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.25})`; ctx.stroke();
             }
         });
@@ -264,13 +260,9 @@ function loop() {
         if (b.isMoon && b.orbitDist * zoom < 5) return;
         const sx = (b.x-offset.x)*zoom+canvas.width/2, sy = (b.y-offset.y)*zoom+canvas.height/2;
         
-        // Planet Drawing Size Constraint
         const moons = bodies.filter(m => m.parent === b);
         let drawRadius = b.radius;
-        if (moons.length > 0) {
-            const minOrbit = Math.min(...moons.map(m => m.orbitDist));
-            drawRadius = Math.min(drawRadius, minOrbit * 0.4);
-        }
+        if (moons.length > 0) drawRadius = Math.min(drawRadius, Math.min(...moons.map(m => m.orbitDist)) * 0.4);
         const sr = Math.max(2, drawRadius * zoom);
         
         if (b.isComet) {
@@ -299,7 +291,7 @@ function loop() {
             const dX = (b.attractorPos.x-offset.x)*zoom+canvas.width/2 - sx, dY = (b.attractorPos.y-offset.y)*zoom+canvas.height/2 - sy, dist = Math.sqrt(dX*dX+dY*dY);
             if(dist > 1) { 
                 ctx.beginPath(); ctx.moveTo(sx, sy); 
-                const forceLen = Math.min(150, b.maxForce * 8000); // Scaled force line
+                const forceLen = Math.min(150, b.maxForce * 8000);
                 ctx.lineTo(sx+dX/dist*forceLen, sy+dY/dist*forceLen); ctx.strokeStyle="yellow"; ctx.lineWidth=1; ctx.stroke(); 
             }
         }
