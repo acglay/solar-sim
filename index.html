@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v19.0</title>
+    <title>Solar Simulator v21.0</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -25,7 +25,7 @@
     </style>
 </head>
 <body>
-<div id="version">v19.0 PC Mouse Support & Orbital Period Correction</div>
+<div id="version">v21.0 Precision Scale & Path Subdivision</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
@@ -62,7 +62,7 @@
 <script>
 const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
 const panel = document.getElementById('panel');
-let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, isPanning = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false;
+let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, isPanning = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false, lastTapTime = 0;
 const G = 1;
 
 const KANA = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ";
@@ -83,10 +83,10 @@ function getSuffix(n) {
 
 const PRESETS = {
     sun: { m: 1000000, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.166, c: '#aaaaaa', n: "水星" },
-    venus: { m: 2.447, c: '#ffddaa', n: "金星" }, earth: { m: 6000, c: '#44aaff', n: "地球" },
-    mars: { m: 642, c: '#ff6644', n: "火星" }, jupiter: { m: 189800, c: '#ffcc99', n: "木星" },
-    saturn: { m: 56800, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 8680, c: '#50c878', n: "天王星", r: "h" },
-    neptune: { m: 10200, c: '#120a8f', n: "海王星" }, pluto: { m: 13, c: '#ccbbbb', n: "冥王星" },
+    venus: { m: 2.45, c: '#ffddaa', n: "金星" }, earth: { m: 3.0, c: '#44aaff', n: "地球" },
+    mars: { m: 0.32, c: '#ff6644', n: "火星" }, jupiter: { m: 954, c: '#ffcc99', n: "木星" },
+    saturn: { m: 285, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 43, c: '#50c878', n: "天王星", r: "h" },
+    neptune: { m: 51, c: '#120a8f', n: "海王星" }, pluto: { m: 0.006, c: '#ccbbbb', n: "冥王星" },
     blackhole: { m: 10000000, c: '#000', n: "ブラックホール" }
 };
 
@@ -114,6 +114,8 @@ function computePhysics(bodyList, dt) {
             const b2 = bodyList[j]; if (b2.isAnalytic) continue;
             const dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx+dy*dy+100, d = Math.sqrt(d2), f = (G*b1.mass*b2.mass)/d2;
             b1.ax += (f*dx/d)/b1.mass; b1.ay += (f*dy/d)/b1.mass; b2.ax -= (f*dx/d)/b2.mass; b2.ay -= (f*dy/d)/b2.mass;
+            if (f/b1.mass > b1.maxForce) { b1.maxForce = f/b1.mass; b1.strongestAttractorName = b2.name; b1.attractorPos = {x:b2.x, y:b2.y}; }
+            if (f/b2.mass > b2.maxForce) { b2.maxForce = f/b2.mass; b2.strongestAttractorName = b1.name; b2.attractorPos = {x:b1.x, y:b1.y}; }
         }
     }
     bodyList.forEach(b => {
@@ -135,14 +137,13 @@ function initSolarSystem() {
     for(let i=0; i<20000; i++) bgStars.push({ x: Math.random()*4000, y: Math.random()*4000, s: Math.random()*1.2, c: `rgba(255,255,255,${Math.random()*0.3+0.1})` });
     for(let i=0; i<3; i++) nebulae.push({ x: Math.random()*2000, y: Math.random()*2000, r: 300+Math.random()*400, c: `hsla(${Math.random()*360}, 60%, 45%, 0.1)` });
     const planets = [
-        [387, PRESETS.mercury, []],
-        [723, PRESETS.venus, []],
-        [1000, PRESETS.earth, [[25, 60, "#b0b0b0", "月"]]],
-        [1524, PRESETS.mars, [[18, 0.1, "#b59e8a", "フォボス"]]],
-        [5203, PRESETS.jupiter, [[110, 89, "#e2d06e", "イオ"],[150, 48, "#a0a0a0", "エウロパ"],[200, 148, "#7a7a7a", "ガニメデ"]]],
-        [9537, PRESETS.saturn, [[200, 134, "#d2a01e", "タイタン"]]],
-        [19191, PRESETS.uranus, [[120, 35, "#b0b0b0", "チタニア"]]],
-        [30069, PRESETS.neptune, [[220, 21, "#90a0b0", "トリトン"]]],
+        [387, PRESETS.mercury, []], [723, PRESETS.venus, []],
+        [1000, PRESETS.earth, [[35, 0.03, "#b0b0b0", "月"]]],
+        [1524, PRESETS.mars, [[22, 0.0001, "#b59e8a", "フォボス"]]],
+        [5203, PRESETS.jupiter, [[110, 0.45, "#e2d06e", "イオ"],[150, 0.4, "#a0a0a0", "エウロパ"],[200, 0.7, "#7a7a7a", "ガニメデ"]]],
+        [9537, PRESETS.saturn, [[200, 0.65, "#d2a01e", "タイタン"]]],
+        [19191, PRESETS.uranus, [[120, 0.1, "#b0b0b0", "チタニア"]]],
+        [30069, PRESETS.neptune, [[220, 0.1, "#90a0b0", "トリトン"]]],
         [39482, PRESETS.pluto, []]
     ];
     planets.forEach(p => {
@@ -151,9 +152,37 @@ function initSolarSystem() {
         bodies.push(planet);
         p[2].forEach(m => { const moon = new Body(0,0,0,0,m[1],m[2],m[3],null,true); moon.parent = planet; moon.orbitDist = m[0]; moon.angle = Math.random()*Math.PI*2; bodies.push(moon); });
     });
-    bodies.push(new Body(6000, 6000, -9, -4, 0.001, "#fff", "ハレー彗星", null, false, true));
-    for(let i=0; i<1000; i++) { const d = 2200+Math.random()*1100, an = Math.random()*Math.PI*2; asteroids.push({ dist: d, ang: an, spd: Math.sqrt(G*sun.mass/Math.pow(d,3)) }); }
+    bodies.push(new Body(6000, 6000, -9.5, -3.5, 0.00001, "#fff", "ハレー彗星", null, false, true));
+    for(let i=0; i<1200; i++) { const d = 2100+Math.random()*1200, an = Math.random()*Math.PI*2; asteroids.push({ dist: d, ang: an, spd: Math.sqrt(G*sun.mass/Math.pow(d,3)) }); }
     offset = {x:0, y:0}; updateSelect();
+}
+
+function handleGacha() {
+    bodies = []; asteroids = []; bodyCounter = 0; addedCount = 0;
+    const mode = Math.random() < 0.1 ? (Math.random() < 0.5 ? "A" : "B") : "S";
+    let center;
+    if (mode === "A") {
+        const m = PRESETS.sun.m, d = 650, v = 0.5*Math.sqrt(G*2*m/d);
+        const s1 = new Body(-d/2, 0, 0, v, m, "#fff", mutateName("ゼウス")), s2 = new Body(d/2, 0, 0, -v, m, "#fff", mutateName("ヘリオス"));
+        bodies.push(s1, s2); center = {x:0, y:0, mass: 2*m, vx:0, vy:0};
+    } else if (mode === "B") {
+        const m1 = PRESETS.sun.m*8, m2 = PRESETS.sun.m*0.05, d = 700;
+        const b1 = new Body(0, 0, 0, 0, m1, "#fff", mutateName("クロノス"));
+        bodies.push(b1, new Body(d, 0, 0, Math.sqrt(G*(m1+m2)/d), m2, "#ffaa00", mutateName("ガイア")));
+        center = b1;
+    } else {
+        center = new Body(0, 0, 0, 0, PRESETS.sun.m, "#fff", mutateName("ノヴァ"));
+        bodies.push(center);
+    }
+    for (let i=0; i<8; i++) {
+        const d = 1600+Math.random()*5000, m = 0.5+Math.random()*300, a = Math.random()*Math.PI*2, v = Math.sqrt((G*center.mass)/d);
+        const p = new Body((center.x||0)+Math.cos(a)*d, (center.y||0)+Math.sin(a)*d, (center.vx||0)-Math.sin(a)*v, (center.vy||0)+Math.cos(a)*v, m, `hsl(${Math.random()*360},70%,60%)`, mutateName(BASE_NAMES[i%BASE_NAMES.length]));
+        bodies.push(p);
+        if (Math.random() < 0.4) {
+            for(let j=0; j<Math.floor(Math.random()*3)+1; j++) { const mn = new Body(0,0,0,0, m*0.01, "#aaa", p.name+"-S"+j, null, true); mn.parent = p; mn.orbitDist = 45+j*35; mn.angle = Math.random()*Math.PI*2; bodies.push(mn); }
+        }
+    }
+    offset = {x:center.x||0, y:center.y||0}; updateSelect();
 }
 
 function loop() {
@@ -161,6 +190,9 @@ function loop() {
         const subSteps = isHighPrecision ? 128 : 32; const dt = (parseFloat(document.getElementById('timeRange').value)*0.5)/subSteps;
         for (let s = 0; s < subSteps; s++) {
             computePhysics(bodies, dt);
+            if (showOrbits && s % 8 === 0) { // Subdivide path
+                bodies.forEach(b => { b.history.push({x:b.x, y:b.y}); if (b.history.length > 150) b.history.shift(); });
+            }
             if (isCollision) {
                 for (let i=0; i<bodies.length; i++) {
                     const b1 = bodies[i]; if (b1.isAnalytic) continue;
@@ -180,9 +212,13 @@ function loop() {
         }
         bodies.forEach(b => {
             if (b.bhCountdown > 0) { b.bhCountdown--; if (b.bhCountdown === 0) { eventStopped = true; whiteoutAlpha = 1.0; setTimeout(() => { b.name = "ブラックホール " + getSuffix(addedCount++); b.updateProperties(); eventStopped = false; updateSelect(); }, 1000); } }
-            if (showOrbits) { b.history.push({x:b.x, y:b.y}); if (b.history.length > 100) b.history.shift(); } else b.history = [];
+            if (!showOrbits) b.history = [];
         });
-        asteroids.forEach(a => { a.ang += a.spd * (parseFloat(document.getElementById('timeRange').value)*0.5); });
+        asteroids.forEach((a, idx) => {
+            a.ang += a.spd * (parseFloat(document.getElementById('timeRange').value)*0.5);
+            const ax = Math.cos(a.ang)*a.dist, ay = Math.sin(a.ang)*a.dist;
+            bodies.forEach(b => { if(!b.isComet && Math.sqrt((ax-b.x)**2+(ay-b.y)**2) < (b.isBlackHole ? 180/zoom : b.radius*2.5)) asteroids.splice(idx, 1); });
+        });
     }
 
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -203,42 +239,69 @@ function loop() {
     if (target) { offset.x = target.x; offset.y = target.y + (panel.offsetHeight/(2*zoom)); }
 
     if (showOrbits) {
-        ctx.lineWidth = 1;
         bodies.forEach(b => {
             if (b.history.length < 2) return;
-            ctx.beginPath();
-            for(let i=1; i<b.history.length; i++) {
+            const len = b.history.length;
+            for(let i=1; i<len; i++) {
+                ctx.beginPath();
                 const p1 = b.history[i-1], p2 = b.history[i];
                 ctx.moveTo((p1.x-offset.x)*zoom+canvas.width/2, (p1.y-offset.y)*zoom+canvas.height/2);
                 ctx.lineTo((p2.x-offset.x)*zoom+canvas.width/2, (p2.y-offset.y)*zoom+canvas.height/2);
+                let alpha = 1.0;
+                // Fade from middle to end
+                if (i < len / 2) alpha = i / (len/2);
+                // Slight fade at the very tip (0.9 to 1.0)
+                if (i > len * 0.9) alpha = 1.0 - ((i - len*0.9)/(len*0.1))*0.5;
+                ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.25})`; ctx.stroke();
             }
-            ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.stroke();
         });
     }
 
     ctx.fillStyle = "rgba(180,180,180,0.3)";
-    asteroids.forEach(a => {
-        const ax = Math.cos(a.ang)*a.dist, ay = Math.sin(a.ang)*a.dist;
-        ctx.fillRect((ax-offset.x)*zoom+canvas.width/2, (ay-offset.y)*zoom+canvas.height/2, 1, 1);
-        bodies.forEach(b => { if(!b.isMoon && Math.sqrt((ax-b.x)**2+(ay-b.y)**2) < b.radius) asteroids.splice(asteroids.indexOf(a),1); });
-    });
+    asteroids.forEach(a => ctx.fillRect((Math.cos(a.ang)*a.dist-offset.x)*zoom+canvas.width/2, (Math.sin(a.ang)*a.dist-offset.y)*zoom+canvas.height/2, 1, 1));
 
     bodies.forEach(b => {
         if (b.isMoon && b.orbitDist * zoom < 5) return;
-        const sx = (b.x-offset.x)*zoom+canvas.width/2, sy = (b.y-offset.y)*zoom+canvas.height/2, sr = Math.max(2, b.radius*zoom);
-        if (b.isComet) {
-            const dx = b.x, dy = b.y, d = Math.sqrt(dx*dx+dy*dy);
-            ctx.strokeStyle = "rgba(200,220,255,0.2)"; ctx.lineWidth = 2;
-            for(let i=0; i<3; i++) { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(sx + dx/d*60, sy + dy/d*60, sx + dx/d*120, sy + dy/d*120 + (i-1)*15); ctx.stroke(); }
+        const sx = (b.x-offset.x)*zoom+canvas.width/2, sy = (b.y-offset.y)*zoom+canvas.height/2;
+        
+        // Planet Drawing Size Constraint
+        const moons = bodies.filter(m => m.parent === b);
+        let drawRadius = b.radius;
+        if (moons.length > 0) {
+            const minOrbit = Math.min(...moons.map(m => m.orbitDist));
+            drawRadius = Math.min(drawRadius, minOrbit * 0.4);
         }
+        const sr = Math.max(2, drawRadius * zoom);
+        
+        if (b.isComet) {
+            const sun = bodies[0]; const dx = b.x - sun.x, dy = b.y - sun.y, d = Math.sqrt(dx*dx+dy*dy);
+            ctx.strokeStyle = "rgba(200,220,255,0.2)"; ctx.lineWidth = 2;
+            for(let i=0; i<3; i++) { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(sx + dx/d*60, sy + dy/d*60, sx + dx/d*130, sy + dy/d*130 + (i-1)*18); ctx.stroke(); }
+        }
+
         ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2);
         if (b.bhCountdown > 0 && Math.floor(b.bhCountdown/5)%2===0) ctx.fillStyle = "#fff"; else ctx.fillStyle = b.color;
         ctx.fill();
         if (b.isBlackHole) { ctx.strokeStyle = "#fff"; ctx.stroke(); }
         if (b.ringType) { ctx.beginPath(); ctx.ellipse(sx, sy, sr*2.5, sr*0.8, 0.4, 0, Math.PI*2); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.stroke(); }
-        const moons = bodies.filter(m => m.parent === b);
-        if (showLabels && (!b.isMoon || (moons.length > 0 && Math.max(...moons.map(m => m.orbitDist))*zoom > canvas.width / 4))) {
-            const tx = sx + sr*0.7, ty = sy - sr*0.7; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx+10, ty-10); ctx.strokeStyle="rgba(255,255,255,0.3)"; ctx.stroke(); ctx.fillStyle="#fff"; ctx.font="10px sans-serif"; ctx.fillText(b.name, tx+12, ty-12);
+        
+        let maxMoonOrbit = moons.length > 0 ? Math.max(...moons.map(m => m.orbitDist)) : 0;
+        let isSatelliteVisible = b.parent && (bodies.filter(m => m.parent === b.parent).length > 0 && Math.max(...bodies.filter(m => m.parent === b.parent).map(m=>m.orbitDist))*zoom > canvas.width/4);
+
+        if (showLabels && (!b.isMoon || isSatelliteVisible)) {
+            const tx = sx + sr*0.7, ty = sy - sr*0.7; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx+10, ty-10); ctx.strokeStyle="rgba(255,255,255,0.3)"; ctx.stroke();
+            ctx.fillStyle="#fff"; ctx.font="10px sans-serif"; 
+            let dName = showDebug ? b.name + " (" + b.mass.toPrecision(5) + ")" : b.name;
+            ctx.fillText(dName, tx+12, ty-12);
+        }
+        if (showDebug && b.attractorPos) {
+            const dX = (b.attractorPos.x-offset.x)*zoom+canvas.width/2 - sx, dY = (b.attractorPos.y-offset.y)*zoom+canvas.height/2 - sy, dist = Math.sqrt(dX*dX+dY*dY);
+            if(dist > 1) { 
+                ctx.beginPath(); ctx.moveTo(sx, sy); 
+                const forceLen = Math.min(150, b.maxForce * 8000); // Scaled force line
+                ctx.lineTo(sx+dX/dist*forceLen, sy+dY/dist*forceLen); ctx.strokeStyle="yellow"; ctx.lineWidth=1; ctx.stroke(); 
+            }
         }
     });
 
@@ -261,7 +324,12 @@ function updateSelect() {
     sel.value = v;
 }
 
-// 投入ロジック（PC/Mobile共用）
+function deleteBody(x, y) {
+    const worldX = (x - canvas.width/2)/zoom + offset.x, worldY = (y - canvas.height/2)/zoom + offset.y;
+    const index = bodies.findIndex(b => Math.sqrt((b.x - worldX)**2 + (b.y - worldY)**2) < b.radius + 15/zoom);
+    if (index !== -1) { bodies.filter(m => m.parent === bodies[index]).forEach(m => bodies.splice(bodies.indexOf(m), 1)); bodies.splice(index, 1); updateSelect(); }
+}
+
 function spawn(x, y, ex, ey) {
     if (inputHandled) return;
     const sx = (x-canvas.width/2)/zoom+offset.x, sy = (y-canvas.height/2)/zoom+offset.y;
@@ -269,35 +337,29 @@ function spawn(x, y, ex, ey) {
     bodies.push(new Body(sx, sy, vx, vy, !(document.getElementById('massRange').disabled) ? c.m * parseFloat(document.getElementById('massRange').value) : c.m, c.c, c.n + " " + getSuffix(addedCount++), c.r)); updateSelect();
 }
 
-// --- PC Mouse Controls ---
 canvas.onmousedown = (e) => {
     if (e.button === 0) { isDragging = true; startPos = {x:e.clientX, y:e.clientY}; inputHandled = false; }
     if (e.button === 1) { isPanning = true; startPos = {x:e.clientX, y:e.clientY}; e.preventDefault(); }
 };
-
+canvas.ondblclick = (e) => deleteBody(e.clientX, e.clientY);
 window.onmousemove = (e) => {
-    if (isPanning) {
-        offset.x -= (e.clientX - startPos.x) / zoom;
-        offset.y -= (e.clientY - startPos.y) / zoom;
-        startPos = {x:e.clientX, y:e.clientY};
-    }
+    if (isPanning) { offset.x -= (e.clientX - startPos.x) / zoom; offset.y -= (e.clientY - startPos.y) / zoom; startPos = {x:e.clientX, y:e.clientY}; }
     if (isDragging) {
         const dx = e.clientX - startPos.x, dy = e.clientY - startPos.y;
-        // 左クリックドラッグ右上：ズームイン / 左下：ズームアウト
         if (dx > 5 && dy < -5) { zoom *= 1.02; startPos = {x:e.clientX, y:e.clientY}; inputHandled = true; }
         else if (dx < -5 && dy > 5) { zoom *= 0.98; startPos = {x:e.clientX, y:e.clientY}; inputHandled = true; }
     }
 };
-
-window.onmouseup = (e) => {
-    if (e.button === 0 && isDragging) { if(!inputHandled) spawn(startPos.x, startPos.y, e.clientX, e.clientY); isDragging = false; }
-    if (e.button === 1) isPanning = false;
-};
-
+window.onmouseup = (e) => { if (e.button === 0 && isDragging) { if(!inputHandled) spawn(startPos.x, startPos.y, e.clientX, e.clientY); isDragging = false; } if (e.button === 1) isPanning = false; };
 canvas.onwheel = (e) => { e.preventDefault(); if (e.deltaY < 0) zoom *= 1.1; else zoom *= 0.9; };
 
-// --- Android Touch Controls (Untouched) ---
-canvas.addEventListener('touchstart', (e) => { e.preventDefault(); isDragging = true; startPos = {x:e.touches[0].clientX, y:e.touches[0].clientY}; inputHandled = false; if(e.touches.length===2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); lastMid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; } }, {passive: false});
+canvas.addEventListener('touchstart', (e) => { 
+    e.preventDefault(); const now = Date.now();
+    if (now - lastTapTime < 300) { deleteBody(e.touches[0].clientX, e.touches[0].clientY); isDragging = false; } 
+    else { isDragging = true; startPos = {x:e.touches[0].clientX, y:e.touches[0].clientY}; inputHandled = false; }
+    lastTapTime = now;
+    if(e.touches.length===2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); lastMid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; } 
+}, {passive: false});
 canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if(e.touches.length===2) { const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY), mid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; zoom *= (d/lastPinchDist); offset.x -= (mid.x-lastMid.x)/zoom; offset.y -= (mid.y-lastMid.y)/zoom; lastPinchDist = d; lastMid = mid; } }, {passive: false});
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); if(isDragging && !inputHandled) { spawn(startPos.x, startPos.y, e.changedTouches[0].clientX, e.changedTouches[0].clientY); inputHandled = true; } isDragging = false; }, {passive: false});
 
