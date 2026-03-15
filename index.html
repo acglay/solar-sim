@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v6.1</title>
+    <title>Solar Simulator v6.2</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -17,8 +17,11 @@
         .ui-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
         select, button { background: #222; color: #fff; border: 1px solid #555; padding: 6px; border-radius: 6px; flex: 1; font-size: 14px; }
         .icon-btn { font-size: 18px; padding: 8px; flex: 1; border: 1px solid #555; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .small-reset-btn { flex: 0 0 40px; font-size: 14px; padding: 4px; background: #333; }
         input[type=range] { flex: 2; accent-color: #00b060; height: 6px; }
+        input[type=range]:disabled { accent-color: #444; cursor: not-allowed; opacity: 0.3; }
         label { white-space: nowrap; font-size: 11px; color: #aaa; min-width: 40px; }
+        .disabled-label { color: #555; }
     </style>
 </head>
 <body>
@@ -35,8 +38,16 @@
             <option value="neptune">🚀 海王星</option><option value="pluto">🚀 冥王星</option>
         </select>
     </div>
-    <div class="ui-row"><label>🌞 質量</label><input type="range" id="massRange" min="0.1" max="10" step="0.1" value="1"></div>
-    <div class="ui-row"><label>⏩ 時間</label><input type="range" id="timeRange" min="0" max="10" step="0.1" value="1.5"></div>
+    <div class="ui-row">
+        <label id="massLabel">🌞 質量</label>
+        <input type="range" id="massRange" min="0.1" max="10" step="0.1" value="1">
+        <button id="massResetBtn" class="small-reset-btn">↩️</button>
+    </div>
+    <div class="ui-row">
+        <label>⏩ 時間</label>
+        <input type="range" id="timeRange" min="0" max="10" step="0.1" value="1.5">
+        <button id="timeResetBtn" class="small-reset-btn">↩️</button>
+    </div>
     <div class="ui-row">
         <button id="pauseBtn" class="icon-btn">⏸️</button>
         <button id="resetBtn" class="icon-btn">🔄</button>
@@ -100,6 +111,151 @@ function updateSelect() {
         o.value = b.id; o.textContent = (b.isBlackHole ? "🕳️ " : "🪐 ") + b.name;
         ui.targetSelect.appendChild(o);
     });
+    ui.targetSelect.value = currentVal;
+}
+
+function initSolarSystem() {
+    bodyCounter = 0; bodies = [];
+    const sun = new Body(0, 0, 0, 0, 50000, '#ffcc00', "太陽", null, false, false); bodies.push(sun);
+    const data = [
+        [200, 0.015, '#aaaaaa', "水星", null, []], [350, 0.12, '#ffddaa', "金星", null, []], [500, 0.15, '#44aaff', "地球", null, [[16, 0.005, "#b0b0b0", "月"]]], 
+        [750, 0.016, '#ff6644', "火星", null, [[12, 0.001, "#b59e8a", "フォボス"], [18, 0.0008, "#9d8b7a", "ダイモス"]]], 
+        [1250, 50, '#ffcc99', "木星", null, [[40, 0.5, "#e2d06e", "イオ"], [58, 0.5, "#a0a0a0", "エウロパ"], [80, 0.8, "#7a7a7a", "ガニメデ"]]], 
+        [1900, 15, '#eeddaa', "土星", "h", [[105, 0.5, "#d2a01e", "タイタン"]]], [2600, 2.5, '#50c878', "天王星", "v", []], [3300, 3.0, '#120a8f', "海王星", null, [[95, 0.4, "#90a0b0", "トリトン"]]]
+    ];
+    data.forEach(p => {
+        const angle = Math.random() * Math.PI * 2; const speed = Math.sqrt((G * (sun.mass + p[1])) / p[0]);
+        const planet = new Body(Math.cos(angle)*p[0], Math.sin(angle)*p[0], -Math.sin(angle)*speed, Math.cos(angle)*speed, p[1], p[2], p[3], p[4], false, true);
+        bodies.push(planet);
+        p[5].forEach(m => {
+            const mAngle = Math.random() * Math.PI * 2; const mSpeed = Math.sqrt((G * (planet.mass + m[1])) / m[0]);
+            bodies.push(new Body(planet.x + Math.cos(mAngle)*m[0], planet.y + Math.sin(mAngle)*m[0], planet.vx - Math.sin(mAngle)*mSpeed, planet.vy + Math.cos(mAngle)*mSpeed, m[1], m[2], m[3], null, true, false));
+        });
+    });
+}
+
+function handleUniversalReset(isRandom = false) {
+    const currentId = parseInt(ui.targetSelect.value);
+    const savedName = (bodies.find(b => b.id === currentId) || {}).name;
+    if(isRandom) {
+        const NAMES = { p1: ["ゼウス", "ベスタ", "ノヴァ", "オシリス", "テラ", "ヘリオス", "クロノス", "ガイア"], p2: ["・コア", "・零", "・ノア", "・エデン"] };
+        bodyCounter = 0; bodies = [];
+        const sun = new Body(0, 0, 0, 0, 40000 + Math.random()*20000, '#fff', NAMES.p1[Math.floor(Math.random()*8)] + NAMES.p2[Math.floor(Math.random()*4)]); bodies.push(sun);
+        for (let i = 0; i < 12; i++) {
+            const angle = Math.random() * Math.PI * 2; const dist = 600 + Math.random()*2500; const speed = Math.sqrt((G * sun.mass) / dist);
+            bodies.push(new Body(Math.cos(angle)*dist, Math.sin(angle)*dist, -Math.sin(angle)*speed, Math.cos(angle)*speed, 0.1 + Math.random()*10, `hsl(${Math.random()*360},70%,60%)`, NAMES.p1[Math.floor(Math.random()*8)] + NAMES.p2[Math.floor(Math.random()*4)]));
+        }
+    } else { initSolarSystem(); }
+    updateSelect();
+    if (savedName) {
+        const newTarget = bodies.find(b => b.name === savedName);
+        if (newTarget) ui.targetSelect.value = newTarget.id;
+    }
+}
+
+function loop() {
+    if (!ui.timeRange) return requestAnimationFrame(loop);
+    const timeScale = parseFloat(ui.timeRange.value);
+    if (!isPaused) {
+        const subSteps = isHighPrecision ? 128 : 32; const dt = (timeScale * 0.45) / subSteps;
+        for (let s = 0; s < subSteps; s++) {
+            for (let i = 0; i < bodies.length; i++) {
+                const b1 = bodies[i];
+                for (let j = i + 1; j < bodies.length; j++) {
+                    const b2 = bodies[j]; const dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx + dy*dy + 0.1, d = Math.sqrt(d2);
+                    const f = (G * b1.mass * b2.mass) / d2;
+                    b1.vx += (f * dx / d) / b1.mass * dt; b1.vy += (f * dy / d) / b1.mass * dt;
+                    b2.vx -= (f * dx / d) / b2.mass * dt; b2.vy -= (f * dy / d) / b2.mass * dt;
+                }
+            }
+            bodies.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; });
+        }
+        if (ui.physicsMode.value === 'collision') {
+            for (let i = 0; i < bodies.length; i++) {
+                for (let j = i + 1; j < bodies.length; j++) {
+                    const b1 = bodies[i], b2 = bodies[j], dx = b2.x-b1.x, dy = b2.y-b1.y, d = Math.sqrt(dx*dx+dy*dy);
+                    if (d < (b1.radius + b2.radius)) {
+                        const m = b1.mass + b2.mass; b1.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/m; b1.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/m;
+                        b1.mass = m; b1.updateRadius(); bodies.splice(j, 1); updateSelect(); j--;
+                    }
+                }
+            }
+        }
+    }
+    ctx.fillStyle = '#000208'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const target = bodies.find(b => b.id === parseInt(ui.targetSelect.value));
+    if (target) { offset.x = target.x; offset.y = target.y; }
+    bodies.forEach(b => b.draw());
+    requestAnimationFrame(loop);
+}
+
+// 事件監聽 (Mouse & Touch)
+canvas.onmousedown = (e) => { isDragging = true; startPos = { x: e.clientX, y: e.clientY }; };
+window.onmousemove = (e) => {
+    if (!isDragging) return;
+    const dx = (e.clientX - startPos.x) / zoom; const dy = (e.clientY - startPos.y) / zoom;
+    if (ui.targetSelect.value == "-1") { offset.x -= dx; offset.y -= dy; }
+    startPos = { x: e.clientX, y: e.clientY };
+};
+window.onmouseup = (e) => {
+    if (isDragging && startPos && currentPos === null) { /* 投入天体処理 */ }
+    isDragging = false;
+};
+canvas.onwheel = (e) => { e.preventDefault(); zoom *= (e.deltaY > 0 ? 0.9 : 1.1); zoom = Math.max(0.001, Math.min(zoom, 100)); };
+
+canvas.ontouchstart = (e) => { if (e.touches.length === 1) { isDragging = true; startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } };
+canvas.ontouchmove = (e) => {
+    if (e.touches.length === 1 && isDragging) {
+        const dx = (e.touches[0].clientX - startPos.x) / zoom; const dy = (e.touches[0].clientY - startPos.y) / zoom;
+        if (ui.targetSelect.value == "-1") { offset.x -= dx; offset.y -= dy; }
+        startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+};
+canvas.ontouchend = (e) => {
+    if (isDragging && startPos) {
+        const sx = (startPos.x - canvas.width/2)/zoom + offset.x, sy = (startPos.y - canvas.height/2)/zoom + offset.y;
+        const type = ui.launchType.value;
+        const config = PRESETS[type];
+        // 太陽以外なら強制的に倍率1.0
+        const multiplier = (type === 'sun') ? parseFloat(ui.massRange.value) : 1.0;
+        bodies.push(new Body(sx, sy, 0, 0, config.m * multiplier, config.c, config.n, config.r, false, false));
+        updateSelect();
+    }
+    isDragging = false;
+};
+
+function updateMassUI() {
+    const isSun = ui.launchType.value === 'sun';
+    ui.massRange.disabled = !isSun;
+    document.getElementById('massLabel').className = isSun ? '' : 'disabled-label';
+}
+
+window.onload = () => {
+    ['targetSelect','physicsMode','launchType','massRange','timeRange','pauseBtn','resetBtn','randomBtn','snBtn','labelBtn','precisionBtn','massResetBtn','timeResetBtn'].forEach(id => ui[id] = document.getElementById(id));
+    
+    ui.resetBtn.onclick = () => handleUniversalReset(false);
+    ui.randomBtn.onclick = () => handleUniversalReset(true);
+    ui.pauseBtn.onclick = () => { isPaused = !isPaused; ui.pauseBtn.textContent = isPaused ? "▶️" : "⏸️"; };
+    ui.snBtn.onclick = () => { isSNEnabled = !isSNEnabled; ui.snBtn.style.background = isSNEnabled ? "#b06000" : "#333"; };
+    ui.labelBtn.onclick = () => { showLabels = !showLabels; ui.labelBtn.style.background = showLabels ? "#0060b0" : "#333"; };
+    ui.precisionBtn.onclick = () => { isHighPrecision = !isHighPrecision; ui.precisionBtn.style.background = isHighPrecision ? "#00b060" : "#333"; };
+    
+    // スライダー個別リセット
+    ui.massResetBtn.onclick = () => ui.massRange.value = 1;
+    ui.timeResetBtn.onclick = () => ui.timeRange.value = 1.5;
+    
+    // 投入天体変更時に質量UIを更新
+    ui.launchType.onchange = updateMassUI;
+    updateMassUI();
+
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    initSolarSystem();
+    updateSelect();
+    loop();
+};
+</script>
+</body>
+</html>
     // 値を可能な限り維持
     ui.targetSelect.value = currentVal;
 }
