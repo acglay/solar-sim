@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>宇宙物理学シミュレーター v2.1</title>
+    <title>宇宙物理学シミュレーター Pro v3</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; }
@@ -12,14 +12,15 @@
             background: rgba(20, 20, 30, 0.95); color: #fff;
             padding: 12px; border-radius: 12px; border: 1px solid #555;
             display: flex; flex-direction: column; gap: 8px;
-            pointer-events: auto; max-width: 480px; font-size: 12px;
+            pointer-events: auto; max-width: 480px; font-size: 11px;
         }
-        .ui-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .ui-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
         select, button {
             background: #333; color: #fff; border: 1px solid #666; padding: 6px; border-radius: 6px; flex: 1;
         }
         #pauseBtn { background: #cc7700; }
         #resetBtn { background: #aa2222; }
+        .sn-mode { color: #ff4444; font-weight: bold; }
         input[type=range] { flex: 2; accent-color: #ffcc00; }
     </style>
 </head>
@@ -29,23 +30,23 @@
 
 <div class="ui-panel">
     <div class="ui-row">
-        <label>🔭 視点固定</label>
+        <label>🔭 視点</label>
         <select id="targetSelect"><option value="-1">自由視点</option></select>
+        <label class="sn-mode">💥 超新星</label>
+        <select id="snMode"><option value="off">OFF</option><option value="on">ON</option></select>
     </div>
     <div class="ui-row">
-        <label>💥 物理</label>
+        <label>⚙️ 物理</label>
         <select id="physicsMode">
-            <option value="normal">すり抜け</option>
             <option value="collision">衝突・合体</option>
+            <option value="normal">すり抜け</option>
         </select>
-    </div>
-    <div class="ui-row">
         <label>🌞 質量</label>
         <input type="range" id="massRange" min="500" max="10000" value="3000">
-        <label>⏩ 速度</label>
-        <input type="range" id="timeRange" min="0" max="3" step="0.1" value="1">
     </div>
     <div class="ui-row">
+        <label>⏩ 速度</label>
+        <input type="range" id="timeRange" min="0" max="3" step="0.1" value="1">
         <button id="pauseBtn">一時停止</button>
         <button id="resetBtn">リセット</button>
     </div>
@@ -55,6 +56,7 @@
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const targetSelect = document.getElementById('targetSelect');
+const snMode = document.getElementById('snMode');
 const physicsMode = document.getElementById('physicsMode');
 const massInput = document.getElementById('massRange');
 const timeInput = document.getElementById('timeRange');
@@ -68,23 +70,25 @@ let offset = { x: 0, y: 0 };
 let isDragging = false;
 let startPos = null;
 let currentPos = null;
-
-// 2本指操作用
 let lastPinchDist = 0;
 let lastMidPoint = null;
-
 let isPaused = false;
 let bodyCounter = 0;
+let supernovaTimer = 0;
+let supernovaActive = false;
+let flashAlpha = 0;
+
 const G = 1;
 
 class Body {
-    constructor(x, y, vx, vy, mass, color, name = "天体") {
+    constructor(x, y, vx, vy, mass, color, name = "天体", hasRings = false) {
         this.id = bodyCounter++;
         this.x = x; this.y = y;
         this.vx = vx; this.vy = vy;
         this.mass = mass;
         this.color = color;
         this.name = name;
+        this.hasRings = hasRings;
         this.updateRadius();
         this.history = [];
     }
@@ -92,7 +96,7 @@ class Body {
     update(dt) {
         if (!isPaused) {
             this.history.push({x: this.x, y: this.y});
-            if (this.history.length > 150) this.history.shift();
+            if (this.history.length > 100) this.history.shift();
             this.x += this.vx * dt;
             this.y += this.vy * dt;
         }
@@ -100,6 +104,237 @@ class Body {
     draw() {
         const sx = (this.x - offset.x) * zoom + canvas.width / 2;
         const sy = (this.y - offset.y) * zoom + canvas.height / 2;
+        
+        // 軌跡
+        if (this.history.length > 1) {
+            ctx.beginPath();
+            ctx.strokeStyle = this.color;
+            ctx.globalAlpha = 0.15;
+            ctx.lineWidth = 1 * zoom;
+            for (let i = 0; i < this.history.length; i++) {
+                const p = this.history[i];
+                const px = (p.x - offset.x) * zoom + canvas.width / 2;
+                const py = (p.y - offset.y) * zoom + canvas.height / 2;
+                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+            ctx.globalAlpha = 1.0;
+        }
+
+        // 輪 (土星など)
+        if (this.hasRings) {
+            ctx.beginPath();
+            ctx.ellipse(sx, sy, this.radius * 2.5 * zoom, this.radius * 0.8 * zoom, 0.4, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(200, 180, 150, 0.5)";
+            ctx.lineWidth = 2 * zoom;
+            ctx.stroke();
+        }
+
+        const sr = Math.max(1.5, this.radius * zoom);
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+    }
+}
+
+class RingEffect {
+    constructor(x, y, color, type = "impact") { 
+        this.x = x; this.y = y; this.color = color; this.life = 1.0; this.type = type;
+    }
+    draw() {
+        this.life -= 0.02;
+        const sx = (this.x - offset.x) * zoom + canvas.width / 2;
+        const sy = (this.y - offset.y) * zoom + canvas.height / 2;
+        ctx.beginPath();
+        const r = this.type === "impact" ? (1.0 - this.life) * 150 * zoom : this.life * 200 * zoom;
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.strokeStyle = this.color;
+        ctx.globalAlpha = this.life;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+function updateSelect() {
+    const currentVal = targetSelect.value;
+    targetSelect.innerHTML = '<option value="-1">自由視点</option>';
+    bodies.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id; opt.textContent = b.name;
+        if (b.id == currentVal) opt.selected = true;
+        targetSelect.appendChild(opt);
+    });
+}
+
+function initSolarSystem() {
+    bodyCounter = 0;
+    supernovaActive = false;
+    supernovaTimer = 0;
+    const seed = Math.random() * 100;
+    bodies = [
+        new Body(0, 0, 0, 0, 5000, '#ffcc00', "太陽")
+    ];
+    // 水星〜海王星 (位置を少しランダム化)
+    const data = [
+        { d: 80,  v: 8.0, m: 5,  c: '#aaaaaa', n: "水星" },
+        { d: 130, v: 6.2, m: 10, c: '#ffddaa', n: "金星" },
+        { d: 190, v: 5.1, m: 10, c: '#44aaff', n: "地球" },
+        { d: 260, v: 4.4, m: 8,  c: '#ff6644', n: "火星" },
+        { d: 450, v: 3.3, m: 50, c: '#ffcc99', n: "木星" },
+        { d: 650, v: 2.8, m: 40, c: '#eeddaa', n: "土星", r: true },
+        { d: 850, v: 2.4, m: 20, c: '#aaffff', n: "天王星" },
+        { d: 1050,v: 2.1, m: 20, c: '#6666ff', n: "海王星" }
+    ];
+    data.forEach(p => {
+        const angle = Math.random() * Math.PI * 2;
+        const x = Math.cos(angle) * p.d;
+        const y = Math.sin(angle) * p.d;
+        const vx = -Math.sin(angle) * p.v;
+        const vy = Math.cos(angle) * p.v;
+        bodies.push(new Body(x, y, vx, vy, p.m, p.c, p.n, p.r));
+    });
+    
+    // リセット時の視点設定
+    zoom = 0.5;
+    offset = { x: 0, y: 0 };
+    targetSelect.value = "-1";
+    updateSelect();
+}
+
+function loop() {
+    const dt = parseFloat(timeInput.value);
+    
+    if (!isPaused) {
+        for (let i = 0; i < bodies.length; i++) {
+            for (let j = i + 1; j < bodies.length; j++) {
+                const b1 = bodies[i]; const b2 = bodies[j];
+                const dx = b2.x - b1.x; const dy = b2.y - b1.y;
+                const d2 = dx*dx + dy*dy + 5;
+                const d = Math.sqrt(d2);
+
+                if (physicsMode.value === 'collision' && d < (b1.radius + b2.radius)) {
+                    const totalM = b1.mass + b2.mass;
+                    b1.vx = (b1.vx * b1.mass + b2.vx * b2.mass) / totalM;
+                    b1.vy = (b1.vy * b1.mass + b2.vy * b2.mass) / totalM;
+                    b1.x = (b1.x * b1.mass + b2.x * b2.mass) / totalM;
+                    b1.y = (b1.y * b1.mass + b2.y * b2.mass) / totalM;
+                    b1.mass = totalM;
+                    b1.updateRadius();
+                    b1.name = b1.name + "系";
+                    effects.push(new RingEffect(b1.x, b1.y, "#fff", "impact"));
+                    bodies.splice(j, 1);
+                    updateSelect();
+                    continue;
+                }
+                const f = (G * b1.mass * b2.mass) / d2;
+                b1.vx += (f * dx / d) / b1.mass * dt;
+                b1.vy += (f * dy / d) / b1.mass * dt;
+                b2.vx -= (f * dx / d) / b2.mass * dt;
+                b2.vy -= (f * dy / d) / b2.mass * dt;
+            }
+
+            // 超新星爆発チェック
+            if (snMode.value === "on" && !supernovaActive && bodies[i].mass >= 50000) {
+                supernovaActive = true;
+                supernovaTimer = 10 + Math.random() * 10; // 10-20秒
+            }
+        }
+    }
+
+    if (supernovaActive && !isPaused) {
+        supernovaTimer -= (1/60) * dt;
+        if (supernovaTimer <= 0) {
+            flashAlpha = 1.0;
+            initSolarSystem();
+        }
+    }
+
+    const targetId = parseInt(targetSelect.value);
+    const target = bodies.find(b => b.id === targetId);
+    if (target) { offset.x = target.x; offset.y = target.y; }
+
+    bodies.forEach(b => b.update(dt));
+    ctx.fillStyle = '#00030a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    bodies.forEach(b => b.draw());
+    effects = effects.filter(e => e.life > 0);
+    effects.forEach(e => e.draw());
+
+    // カウントダウン表示
+    if (supernovaActive) {
+        ctx.fillStyle = "red";
+        ctx.font = "bold 20px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("⚠️ 超新星爆発まで: " + supernovaTimer.toFixed(1) + "s", canvas.width/2, 50);
+    }
+
+    // フラッシュ演出
+    if (flashAlpha > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
+        ctx.fillRect(0,0,canvas.width, canvas.height);
+        flashAlpha -= 0.05;
+    }
+
+    if (isDragging && startPos && currentPos) {
+        ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(currentPos.x, currentPos.y);
+        ctx.strokeStyle = '#ffff00'; ctx.stroke();
+    }
+    requestAnimationFrame(loop);
+}
+
+resetBtn.onclick = initSolarSystem;
+pauseBtn.onclick = () => { isPaused = !isPaused; pauseBtn.textContent = isPaused ? "再開" : "一時停止"; };
+
+canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+        isDragging = true;
+        startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        currentPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2) {
+        isDragging = false;
+        lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        lastMidPoint = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1 && isDragging) {
+        currentPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2) {
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        zoom *= (dist / lastPinchDist); zoom = Math.min(Math.max(zoom, 0.01), 10);
+        lastPinchDist = dist;
+        if (targetSelect.value == "-1") {
+            const mid = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+            offset.x -= (mid.x - lastMidPoint.x) / zoom; offset.y -= (mid.y - lastMidPoint.y) / zoom;
+            lastMidPoint = mid;
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+    if (isDragging && startPos && currentPos) {
+        const simX = (startPos.x - canvas.width / 2) / zoom + offset.x;
+        const simY = (startPos.y - canvas.height / 2) / zoom + offset.y;
+        const vx = (currentPos.x - startPos.x) * 0.05 / zoom;
+        const vy = (currentPos.y - startPos.y) * 0.05 / zoom;
+        bodies.push(new Body(simX, simY, vx, vy, parseInt(massInput.value), '#fff', "新天体"));
+        updateSelect();
+    }
+    isDragging = false;
+});
+
+window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+initSolarSystem();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
         if (this.history.length > 1) {
             ctx.beginPath();
             ctx.strokeStyle = this.color;
