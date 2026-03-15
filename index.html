@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v4.6</title>
+    <title>Solar Simulator v4.7</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; }
@@ -64,8 +64,18 @@ const ui = {
 let bodies = [], effects = [], zoom = 0.5, offset = { x: 0, y: 0 }, isDragging = false, startPos = null, currentPos = null, lastPinchDist = 0, lastMidPoint = null, isPaused = false, bodyCounter = 0, supernovaTimer = 0, supernovaActive = false, flashAlpha = 0, animFrame = 0, isSNEnabled = true;
 const G = 1;
 
+// 惑星の固定色定義
 const PRESETS = {
-    sun: { m: 20000, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.1, c: '#aaaaaa', n: "水星" }, venus: { m: 0.8, c: '#ffddaa', n: "金星" }, earth: { m: 1, c: '#44aaff', n: "地球" }, mars: { m: 0.1, c: '#ff6644', n: "火星" }, jupiter: { m: 318, c: '#ffcc99', n: "木星" }, saturn: { m: 95, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 14, c: '#aaffff', n: "天王星", r: "v" }, neptune: { m: 17, c: '#6666ff', n: "海王星" }, pluto: { m: 0.002, c: '#ccbbbb', n: "冥王星" }
+    sun: { m: 20000, c: '#ffcc00', n: "太陽" },
+    mercury: { m: 0.1, c: '#aaaaaa', n: "水星" },
+    venus: { m: 0.8, c: '#ffddaa', n: "金星" },
+    earth: { m: 1, c: '#44aaff', n: "地球" },
+    mars: { m: 0.1, c: '#ff6644', n: "火星" },
+    jupiter: { m: 318, c: '#ffcc99', n: "木星" },
+    saturn: { m: 95, c: '#eeddaa', n: "土星", r: "h" },
+    uranus: { m: 14, c: '#aaffff', n: "天王星", r: "v" },
+    neptune: { m: 17, c: '#6666ff', n: "海王星" },
+    pluto: { m: 0.002, c: '#ccbbbb', n: "冥王星" }
 };
 
 const NAMES = { p1: ["ゼウス", "アエテルナ", "ベスタ", "ノヴァ", "オシリス", "テラ", "ヘリオス", "クロノス", "ガイア", "アイテール"], p2: ["・プライム", "・ベータ", "・マギナ", "・オリジン", "・ヴォイド", "・コア", "・零", "・ノア", "・エデン"] };
@@ -102,11 +112,16 @@ class SpaghettiPoint {
 }
 
 class Body {
-    constructor(x, y, vx, vy, mass, color, name, ringType = null) {
-        this.id = bodyCounter++; this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.mass = mass; this.color = color; this.name = name; this.ringType = ringType; this.history = []; this.spaghettiPoints = []; this.isBlackHole = false; this.updateRadius();
+    constructor(x, y, vx, vy, mass, color, name, ringType = null, isMoon = false) {
+        this.id = bodyCounter++; this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.mass = mass; 
+        this.color = color; this.name = name; this.ringType = ringType; this.isMoon = isMoon;
+        this.history = []; this.spaghettiPoints = []; this.isBlackHole = false; this.updateRadius();
     }
     updateRadius() {
-        this.radius = Math.max(1.2, Math.pow(this.mass, 1/3) * (this.isBlackHole ? 1.0 : 1.5));
+        // 衛星は描画倍率を0.7倍に下げて相対的に小さく見せる
+        const scale = this.isBlackHole ? 1.0 : (this.isMoon ? 0.7 : 1.5);
+        this.radius = Math.max(1.0, Math.pow(this.mass, 1/3) * scale);
+        // 恒星級(500以上)かつブラックホールでない場合のみ色変化
         if (!this.isBlackHole && this.mass >= 500) this.color = getColorByMass(this.mass);
     }
     update(dt) { if (!isPaused) { this.history.push({x: this.x, y: this.y}); if (this.history.length > 30) this.history.shift(); this.x += this.vx * dt; this.y += this.vy * dt; } }
@@ -134,19 +149,19 @@ class Body {
     }
 }
 
-function addKeplerBody(parent, dist, mass, color, name, ringType = null) {
+function addKeplerBody(parent, dist, mass, color, name, ringType = null, isMoon = false) {
     const angle = Math.random() * Math.PI * 2;
     const x = parent.x + Math.cos(angle) * dist, y = parent.y + Math.sin(angle) * dist;
     const speed = Math.sqrt((G * (parent.mass + mass)) / dist);
     const vx = parent.vx - Math.sin(angle) * speed, vy = parent.vy + Math.cos(angle) * speed;
-    const body = new Body(x, y, vx, vy, mass, color, name, ringType);
+    const body = new Body(x, y, vx, vy, mass, color, name, ringType, isMoon);
     bodies.push(body); return body;
 }
 
 function initSolarSystem() {
     bodyCounter = 0; supernovaActive = false; supernovaTimer = 0; bodies = [];
     const sun = new Body(0, 0, 0, 0, 20000, '#ffcc00', "太陽"); bodies.push(sun);
-    // 惑星・衛星をよりヒル球内に配置 [距離, 質量, 色, 名前, 輪, 衛星]
+    // 初期カラーと衛星サイズを最適化
     const data = [
         [150, 0.1, '#aaaaaa', "水星", null, []], [250, 0.8, '#ffddaa', "金星", null, []],
         [380, 80, '#44aaff', "地球", null, [[15, 1, "#ccc", "月"]]],
@@ -155,13 +170,16 @@ function initSolarSystem() {
         [1500, 1000, '#eeddaa', "土星", "h", [[90, 10, "#f96", "タイタン"]]],
         [2000, 500, '#aaffff', "天王星", "v", []], [2500, 500, '#6666ff', "海王星", null, [[70, 8, "#ddd", "トリトン"]]]
     ];
-    data.forEach(p => { const planet = addKeplerBody(sun, p[0], p[1], p[2], p[3], p[4]); p[5].forEach(m => addKeplerBody(planet, m[0], m[1], m[2], m[3])); });
+    data.forEach(p => { 
+        const planet = addKeplerBody(sun, p[0], p[1], p[2], p[3], p[4], false); 
+        p[5].forEach(m => addKeplerBody(planet, m[0], m[1], m[2], m[3], null, true)); 
+    });
     zoom = 0.4; offset = { x: 0, y: 0 }; ui.targetSelect.value = "-1"; updateSelect();
 }
 
 function generateRandomSystem() {
     bodyCounter = 0; supernovaActive = false; bodies = [];
-    const isBinary = Math.random() < 0.2; const rotSpeed = 0.8 + Math.random() * 0.4;
+    const isBinary = Math.random() < 0.2;
     let sun;
     if (isBinary) {
         if (Math.random() < 0.5) {
@@ -176,8 +194,8 @@ function generateRandomSystem() {
         sun = new Body(0, 0, 0, 0, 20000 + Math.random()*15000, '#fff', generateName()); bodies.push(sun);
     }
     for (let i = 0; i < 10; i++) {
-        const p = addKeplerBody(sun, 600 + Math.random()*2000, 20 + Math.random()*800, `hsl(${Math.random()*360},70%,60%)`, generateName());
-        if (Math.random() < 0.4) addKeplerBody(p, 45 + Math.random()*55, 1 + Math.random()*10, "#eee", generateName());
+        const p = addKeplerBody(sun, 600 + Math.random()*2000, 20 + Math.random()*800, `hsl(${Math.random()*360},70%,60%)`, generateName(), null, false);
+        if (Math.random() < 0.4) addKeplerBody(p, 45 + Math.random()*55, 1 + Math.random()*10, "#eee", generateName(), null, true);
     }
     zoom = 0.3; offset = { x: 0, y: 0 }; ui.targetSelect.value = "-1"; updateSelect();
 }
@@ -231,7 +249,7 @@ canvas.addEventListener('touchend', (e) => {
     if (isDragging && startPos && currentPos) {
         const sx = (startPos.x - canvas.width/2)/zoom + offset.x, sy = (startPos.y - canvas.height/2)/zoom + offset.y;
         const config = PRESETS[ui.launchType.value], multiplier = parseFloat(ui.massRange.value);
-        bodies.push(new Body(sx, sy, (currentPos.x - startPos.x)*0.05/zoom, (currentPos.y - startPos.y)*0.05/zoom, config.m * multiplier, config.c, config.n, config.r)); updateSelect();
+        bodies.push(new Body(sx, sy, (currentPos.x - startPos.x)*0.05/zoom, (currentPos.y - startPos.y)*0.05/zoom, config.m * multiplier, config.c, config.n, config.r, false)); updateSelect();
     }
     isDragging = false;
 });
