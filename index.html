@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v18.0</title>
+    <title>Solar Simulator v19.0</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -25,7 +25,7 @@
     </style>
 </head>
 <body>
-<div id="version">v18.0 BH Absorption & Kepler Sync</div>
+<div id="version">v19.0 PC Mouse Support & Orbital Period Correction</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
@@ -62,7 +62,7 @@
 <script>
 const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
 const panel = document.getElementById('panel');
-let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false;
+let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, isPanning = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false;
 const G = 1;
 
 const KANA = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ";
@@ -83,10 +83,10 @@ function getSuffix(n) {
 
 const PRESETS = {
     sun: { m: 1000000, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.166, c: '#aaaaaa', n: "水星" },
-    venus: { m: 2.447, c: '#ffddaa', n: "金星" }, earth: { m: 3.003, c: '#44aaff', n: "地球" },
-    mars: { m: 0.322, c: '#ff6644', n: "火星" }, jupiter: { m: 954.7, c: '#ffcc99', n: "木星" },
-    saturn: { m: 285.8, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 43.66, c: '#50c878', n: "天王星", r: "h" },
-    neptune: { m: 51.51, c: '#120a8f', n: "海王星" }, pluto: { m: 0.006, c: '#ccbbbb', n: "冥王星" },
+    venus: { m: 2.447, c: '#ffddaa', n: "金星" }, earth: { m: 6000, c: '#44aaff', n: "地球" },
+    mars: { m: 642, c: '#ff6644', n: "火星" }, jupiter: { m: 189800, c: '#ffcc99', n: "木星" },
+    saturn: { m: 56800, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 8680, c: '#50c878', n: "天王星", r: "h" },
+    neptune: { m: 10200, c: '#120a8f', n: "海王星" }, pluto: { m: 13, c: '#ccbbbb', n: "冥王星" },
     blackhole: { m: 10000000, c: '#000', n: "ブラックホール" }
 };
 
@@ -114,8 +114,6 @@ function computePhysics(bodyList, dt) {
             const b2 = bodyList[j]; if (b2.isAnalytic) continue;
             const dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx+dy*dy+100, d = Math.sqrt(d2), f = (G*b1.mass*b2.mass)/d2;
             b1.ax += (f*dx/d)/b1.mass; b1.ay += (f*dy/d)/b1.mass; b2.ax -= (f*dx/d)/b2.mass; b2.ay -= (f*dy/d)/b2.mass;
-            if (f/b1.mass > b1.maxForce) { b1.maxForce = f/b1.mass; b1.strongestAttractorName = b2.name; b1.attractorPos = {x:b2.x, y:b2.y}; }
-            if (f/b2.mass > b2.maxForce) { b2.maxForce = f/b2.mass; b2.strongestAttractorName = b1.name; b2.attractorPos = {x:b1.x, y:b1.y}; }
         }
     }
     bodyList.forEach(b => {
@@ -136,7 +134,17 @@ function initSolarSystem() {
     const sun = new Body(0, 0, 0, 0, PRESETS.sun.m, PRESETS.sun.c, "太陽"); bodies.push(sun);
     for(let i=0; i<20000; i++) bgStars.push({ x: Math.random()*4000, y: Math.random()*4000, s: Math.random()*1.2, c: `rgba(255,255,255,${Math.random()*0.3+0.1})` });
     for(let i=0; i<3; i++) nebulae.push({ x: Math.random()*2000, y: Math.random()*2000, r: 300+Math.random()*400, c: `hsla(${Math.random()*360}, 60%, 45%, 0.1)` });
-    const planets = [[387, PRESETS.mercury, []],[723, PRESETS.venus, []],[1000, PRESETS.earth, [[35,0.037,"#b0b0b0","月"]]],[1524, PRESETS.mars, [[18,0.0001,"#b59e8a","フォボス"]]],[5203, PRESETS.jupiter, [[110,0.45,"#e2d06e","イオ"],[150,0.4,"#a0a0a0","エウロパ"],[200,0.7,"#7a7a7a","ガニメデ"]]],[9537, PRESETS.saturn, [[200,0.65,"#d2a01e","タイタン"]]],[19191, PRESETS.uranus, [[120,0.1,"#b0b0b0","チタニア"]]],[30069, PRESETS.neptune, [[220,0.1,"#90a0b0","トリトン"]]],[39482, PRESETS.pluto, []]];
+    const planets = [
+        [387, PRESETS.mercury, []],
+        [723, PRESETS.venus, []],
+        [1000, PRESETS.earth, [[25, 60, "#b0b0b0", "月"]]],
+        [1524, PRESETS.mars, [[18, 0.1, "#b59e8a", "フォボス"]]],
+        [5203, PRESETS.jupiter, [[110, 89, "#e2d06e", "イオ"],[150, 48, "#a0a0a0", "エウロパ"],[200, 148, "#7a7a7a", "ガニメデ"]]],
+        [9537, PRESETS.saturn, [[200, 134, "#d2a01e", "タイタン"]]],
+        [19191, PRESETS.uranus, [[120, 35, "#b0b0b0", "チタニア"]]],
+        [30069, PRESETS.neptune, [[220, 21, "#90a0b0", "トリトン"]]],
+        [39482, PRESETS.pluto, []]
+    ];
     planets.forEach(p => {
         const a = Math.random()*Math.PI*2, v = Math.sqrt((G*sun.mass)/p[0]);
         const planet = new Body(Math.cos(a)*p[0], Math.sin(a)*p[0], -Math.sin(a)*v, Math.cos(a)*v, p[1].m, p[1].c, p[1].n, p[1].r);
@@ -146,34 +154,6 @@ function initSolarSystem() {
     bodies.push(new Body(6000, 6000, -9, -4, 0.001, "#fff", "ハレー彗星", null, false, true));
     for(let i=0; i<1000; i++) { const d = 2200+Math.random()*1100, an = Math.random()*Math.PI*2; asteroids.push({ dist: d, ang: an, spd: Math.sqrt(G*sun.mass/Math.pow(d,3)) }); }
     offset = {x:0, y:0}; updateSelect();
-}
-
-function handleGacha() {
-    bodies = []; asteroids = []; bodyCounter = 0; addedCount = 0;
-    const mode = Math.random() < 0.1 ? (Math.random() < 0.5 ? "A" : "B") : "S";
-    let center;
-    if (mode === "A") {
-        const m = PRESETS.sun.m, d = 600, v = 0.5*Math.sqrt(G*2*m/d);
-        const s1 = new Body(-d/2, 0, 0, v, m, "#fff", mutateName("ゼウス")), s2 = new Body(d/2, 0, 0, -v, m, "#fff", mutateName("ヘリオス"));
-        bodies.push(s1, s2); center = {x:0, y:0, mass: 2*m, vx:0, vy:0};
-    } else if (mode === "B") {
-        const m1 = PRESETS.sun.m*10, m2 = PRESETS.sun.m*0.1, d = 600;
-        const b1 = new Body(0, 0, 0, 0, m1, "#fff", mutateName("クロノス"));
-        bodies.push(b1, new Body(d, 0, 0, Math.sqrt(G*(m1+m2)/d), m2, "#ffaa00", mutateName("ガイア")));
-        center = b1;
-    } else {
-        center = new Body(0, 0, 0, 0, PRESETS.sun.m, "#fff", mutateName("ノヴァ"));
-        bodies.push(center);
-    }
-    for (let i=0; i<8; i++) {
-        const d = 1500+Math.random()*6000, m = 0.1+Math.random()*200, a = Math.random()*Math.PI*2, v = Math.sqrt((G*center.mass)/d);
-        const p = new Body((center.x||0)+Math.cos(a)*d, (center.y||0)+Math.sin(a)*d, (center.vx||0)-Math.sin(a)*v, (center.vy||0)+Math.cos(a)*v, m, `hsl(${Math.random()*360},70%,60%)`, mutateName(BASE_NAMES[i%BASE_NAMES.length]));
-        bodies.push(p);
-        if (Math.random() < 0.33) {
-            for(let j=0; j<Math.floor(Math.random()*3)+1; j++) { const mn = new Body(0,0,0,0, m*0.01, "#aaa", p.name+"-S"+j, null, true); mn.parent = p; mn.orbitDist = 40+j*30; mn.angle = Math.random()*Math.PI*2; bodies.push(mn); }
-        }
-    }
-    offset = {x:center.x||0, y:center.y||0}; updateSelect();
 }
 
 function loop() {
@@ -191,11 +171,7 @@ function loop() {
                             const sm = b1.mass > b2.mass ? b1 : b2, vm = b1.mass > b2.mass ? b2 : b1;
                             for(let k=0; k<15; k++) particles.push({x: vm.x, y: vm.y, vx: (Math.random()-0.5)*20, vy: (Math.random()-0.5)*20, life: 1, c: vm.color});
                             bodies.filter(m => m.parent === vm).forEach(m => bodies.splice(bodies.indexOf(m), 1));
-                            // ブラックホール吸収ロジック: 衝撃を吸収して軌道を乱さない
-                            if (!sm.isBlackHole) {
-                                sm.vx = (b1.vx*b1.mass+b2.vx*b2.mass)/(b1.mass+vm.mass); 
-                                sm.vy = (b1.vy*b1.mass+b2.vy*b2.mass)/(b1.mass+vm.mass);
-                            }
+                            if (!sm.isBlackHole) { sm.vx = (b1.vx*b1.mass+b2.vx*b2.mass)/(b1.mass+vm.mass); sm.vy = (b1.vy*b1.mass+b2.vy*b2.mass)/(b1.mass+vm.mass); }
                             sm.mass += vm.mass; sm.updateProperties(); bodies.splice(bodies.indexOf(vm), 1); updateSelect(); j--;
                         }
                     }
@@ -264,10 +240,6 @@ function loop() {
         if (showLabels && (!b.isMoon || (moons.length > 0 && Math.max(...moons.map(m => m.orbitDist))*zoom > canvas.width / 4))) {
             const tx = sx + sr*0.7, ty = sy - sr*0.7; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx+10, ty-10); ctx.strokeStyle="rgba(255,255,255,0.3)"; ctx.stroke(); ctx.fillStyle="#fff"; ctx.font="10px sans-serif"; ctx.fillText(b.name, tx+12, ty-12);
         }
-        if (showDebug && b.attractorPos) {
-            const dx = (b.attractorPos.x-offset.x)*zoom+canvas.width/2 - sx, dy = (b.attractorPos.y-offset.y)*zoom+canvas.height/2 - sy, dist = Math.sqrt(dx*dx+dy*dy);
-            if(dist > 1) { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx+dx/dist*40, sy+dy/dist*40); ctx.strokeStyle="yellow"; ctx.lineWidth=1; ctx.stroke(); }
-        }
     });
 
     particles = particles.filter(p => { 
@@ -289,6 +261,7 @@ function updateSelect() {
     sel.value = v;
 }
 
+// 投入ロジック（PC/Mobile共用）
 function spawn(x, y, ex, ey) {
     if (inputHandled) return;
     const sx = (x-canvas.width/2)/zoom+offset.x, sy = (y-canvas.height/2)/zoom+offset.y;
@@ -296,8 +269,34 @@ function spawn(x, y, ex, ey) {
     bodies.push(new Body(sx, sy, vx, vy, !(document.getElementById('massRange').disabled) ? c.m * parseFloat(document.getElementById('massRange').value) : c.m, c.c, c.n + " " + getSuffix(addedCount++), c.r)); updateSelect();
 }
 
-canvas.onmousedown = (e) => { isDragging = true; startPos = {x:e.clientX, y:e.clientY}; inputHandled = false; };
-window.onmouseup = (e) => { if(isDragging && !inputHandled) { spawn(startPos.x, startPos.y, e.clientX, e.clientY); inputHandled = true; } isDragging = false; };
+// --- PC Mouse Controls ---
+canvas.onmousedown = (e) => {
+    if (e.button === 0) { isDragging = true; startPos = {x:e.clientX, y:e.clientY}; inputHandled = false; }
+    if (e.button === 1) { isPanning = true; startPos = {x:e.clientX, y:e.clientY}; e.preventDefault(); }
+};
+
+window.onmousemove = (e) => {
+    if (isPanning) {
+        offset.x -= (e.clientX - startPos.x) / zoom;
+        offset.y -= (e.clientY - startPos.y) / zoom;
+        startPos = {x:e.clientX, y:e.clientY};
+    }
+    if (isDragging) {
+        const dx = e.clientX - startPos.x, dy = e.clientY - startPos.y;
+        // 左クリックドラッグ右上：ズームイン / 左下：ズームアウト
+        if (dx > 5 && dy < -5) { zoom *= 1.02; startPos = {x:e.clientX, y:e.clientY}; inputHandled = true; }
+        else if (dx < -5 && dy > 5) { zoom *= 0.98; startPos = {x:e.clientX, y:e.clientY}; inputHandled = true; }
+    }
+};
+
+window.onmouseup = (e) => {
+    if (e.button === 0 && isDragging) { if(!inputHandled) spawn(startPos.x, startPos.y, e.clientX, e.clientY); isDragging = false; }
+    if (e.button === 1) isPanning = false;
+};
+
+canvas.onwheel = (e) => { e.preventDefault(); if (e.deltaY < 0) zoom *= 1.1; else zoom *= 0.9; };
+
+// --- Android Touch Controls (Untouched) ---
 canvas.addEventListener('touchstart', (e) => { e.preventDefault(); isDragging = true; startPos = {x:e.touches[0].clientX, y:e.touches[0].clientY}; inputHandled = false; if(e.touches.length===2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); lastMid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; } }, {passive: false});
 canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if(e.touches.length===2) { const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY), mid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; zoom *= (d/lastPinchDist); offset.x -= (mid.x-lastMid.x)/zoom; offset.y -= (mid.y-lastMid.y)/zoom; lastPinchDist = d; lastMid = mid; } }, {passive: false});
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); if(isDragging && !inputHandled) { spawn(startPos.x, startPos.y, e.changedTouches[0].clientX, e.changedTouches[0].clientY); inputHandled = true; } isDragging = false; }, {passive: false});
