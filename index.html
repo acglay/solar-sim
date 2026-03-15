@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v4.7</title>
+    <title>Solar Simulator v4.8</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; }
@@ -18,7 +18,7 @@
         select, button {
             background: #222; color: #fff; border: 1px solid #555; padding: 6px; border-radius: 6px; flex: 1;
         }
-        .icon-btn { font-size: 20px; padding: 8px; flex: 1; border: 1px solid #555; cursor: pointer; }
+        .icon-btn { font-size: 18px; padding: 8px; flex: 1; border: 1px solid #555; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         input[type=range] { flex: 2; accent-color: #55aaff; height: 6px; }
         label { white-space: nowrap; font-size: 11px; color: #aaa; }
     </style>
@@ -44,27 +44,22 @@
         <button id="resetBtn" class="icon-btn">🔄</button>
         <button id="randomBtn" class="icon-btn">🌌</button>
         <button id="snBtn" class="icon-btn" style="background: #b06000;">⭐</button>
+        <button id="labelBtn" class="icon-btn" style="background: #0060b0;">📛</button>
     </div>
 </div>
 
 <script>
 const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
 const ui = {
-    targetSelect: document.getElementById('targetSelect'),
-    snBtn: document.getElementById('snBtn'),
-    physicsMode: document.getElementById('physicsMode'),
-    launchType: document.getElementById('launchType'),
-    massRange: document.getElementById('massRange'),
-    timeRange: document.getElementById('timeRange'),
-    pauseBtn: document.getElementById('pauseBtn'),
-    resetBtn: document.getElementById('resetBtn'),
-    randomBtn: document.getElementById('randomBtn')
+    targetSelect: document.getElementById('targetSelect'), snBtn: document.getElementById('snBtn'), labelBtn: document.getElementById('labelBtn'),
+    physicsMode: document.getElementById('physicsMode'), launchType: document.getElementById('launchType'),
+    massRange: document.getElementById('massRange'), timeRange: document.getElementById('timeRange'),
+    pauseBtn: document.getElementById('pauseBtn'), resetBtn: document.getElementById('resetBtn'), randomBtn: document.getElementById('randomBtn')
 };
 
-let bodies = [], effects = [], zoom = 0.5, offset = { x: 0, y: 0 }, isDragging = false, startPos = null, currentPos = null, lastPinchDist = 0, lastMidPoint = null, isPaused = false, bodyCounter = 0, supernovaTimer = 0, supernovaActive = false, flashAlpha = 0, animFrame = 0, isSNEnabled = true;
+let bodies = [], effects = [], zoom = 0.5, offset = { x: 0, y: 0 }, isDragging = false, startPos = null, currentPos = null, lastPinchDist = 0, lastMidPoint = null, isPaused = false, bodyCounter = 0, supernovaTimer = 0, supernovaActive = false, flashAlpha = 0, animFrame = 0, isSNEnabled = true, showLabels = true;
 const G = 1;
 
-// 惑星の固定色定義
 const PRESETS = {
     sun: { m: 20000, c: '#ffcc00', n: "太陽" },
     mercury: { m: 0.1, c: '#aaaaaa', n: "水星" },
@@ -73,8 +68,8 @@ const PRESETS = {
     mars: { m: 0.1, c: '#ff6644', n: "火星" },
     jupiter: { m: 318, c: '#ffcc99', n: "木星" },
     saturn: { m: 95, c: '#eeddaa', n: "土星", r: "h" },
-    uranus: { m: 14, c: '#aaffff', n: "天王星", r: "v" },
-    neptune: { m: 17, c: '#6666ff', n: "海王星" },
+    uranus: { m: 14, c: '#50c878', n: "天王星", r: "v" }, // エメラルド
+    neptune: { m: 17, c: '#120a8f', n: "海王星" }, // 群青
     pluto: { m: 0.002, c: '#ccbbbb', n: "冥王星" }
 };
 
@@ -88,7 +83,7 @@ function lerpColor(c1, c2, f) {
 }
 
 function getColorByMass(mass) {
-    const colors = [{ m: 500, c: '#ff5533' }, { m: 5000, c: '#ffcc00' }, { m: 20000, c: '#ffffff' }, { m: 100000, c: '#88ccff' }];
+    const colors = [{ m: 1000, c: '#ff5533' }, { m: 5000, c: '#ffcc00' }, { m: 20000, c: '#ffffff' }, { m: 100000, c: '#88ccff' }];
     if (mass <= colors[0].m) return colors[0].c;
     if (mass >= colors[colors.length - 1].m) return colors[colors.length - 1].c;
     for (let i = 0; i < colors.length - 1; i++) {
@@ -96,10 +91,158 @@ function getColorByMass(mass) {
     }
 }
 
-class SpaghettiPoint {
-    constructor(x, y, vx, vy, color) { this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.color = color; this.life = 1.0; }
-    update(bh, dt) {
-        const dx = bh.x - this.x, dy = bh.y - this.y, d2 = dx*dx + dy*dy, d = Math.sqrt(d2);
+class Body {
+    constructor(x, y, vx, vy, mass, color, name, ringType = null, isMoon = false, isPreset = false) {
+        this.id = bodyCounter++; this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.mass = mass; 
+        this.color = color; this.name = name; this.ringType = ringType; this.isMoon = isMoon; this.isPreset = isPreset;
+        this.history = []; this.spaghettiPoints = []; this.isBlackHole = false; this.updateRadius();
+    }
+    updateRadius() {
+        const scale = this.isBlackHole ? 1.0 : (this.isMoon ? 0.6 : 1.5);
+        this.radius = Math.max(0.8, Math.pow(this.mass, 1/3) * scale);
+        // 恒星進化は1000以上かつ、プリセット(惑星)でない場合のみ適用
+        if (!this.isBlackHole && this.mass >= 1000 && !this.isPreset) this.color = getColorByMass(this.mass);
+    }
+    update(dt) { if (!isPaused) { this.history.push({x: this.x, y: this.y}); if (this.history.length > 20) this.history.shift(); this.x += this.vx * dt; this.y += this.vy * dt; } }
+    draw() {
+        const sx = (this.x - offset.x) * zoom + canvas.width / 2, sy = (this.y - offset.y) * zoom + canvas.height / 2, sr = Math.max(1, this.radius * zoom);
+        if (this.isBlackHole) { this.drawGargantua(sx, sy, sr); }
+        else if (this.spaghettiPoints.length > 0) { this.spaghettiPoints.forEach(p => p.draw()); }
+        else {
+            if (this.ringType === "h") {
+                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.8, sr * 0.8, 0.4, 0, Math.PI * 2); ctx.strokeStyle = "rgba(200, 180, 150, 0.4)"; ctx.lineWidth = 2 * zoom; ctx.stroke();
+            } else if (this.ringType === "v") {
+                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.5, sr * 0.6, 1.4, 0, Math.PI * 2); ctx.strokeStyle = "rgba(180, 220, 255, 0.4)"; ctx.lineWidth = 1 * zoom; ctx.stroke();
+            }
+            ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
+        }
+        if (showLabels && !this.isBlackHole && this.spaghettiPoints.length === 0) {
+            ctx.fillStyle = "white"; ctx.font = `${Math.max(10, 12 * zoom)}px sans-serif`; ctx.textAlign = "center";
+            ctx.fillText(this.name, sx, sy - sr - 5);
+        }
+    }
+    drawGargantua(sx, sy, sr) {
+        animFrame += 0.02; ctx.save();
+        const glowGrad = ctx.createRadialGradient(sx, sy, sr, sx, sy, sr * 5);
+        glowGrad.addColorStop(0, "rgba(255, 220, 100, 0.5)"); glowGrad.addColorStop(1, "rgba(255, 50, 0, 0)");
+        ctx.beginPath(); ctx.ellipse(sx, sy, sr * 4, sr * 2, 0, 0, Math.PI * 2); ctx.fillStyle = glowGrad; ctx.fill();
+        const diskGrad = ctx.createLinearGradient(sx - sr*5, sy, sx + sr*4, sy);
+        diskGrad.addColorStop(0, "rgba(255, 100, 0, 0)"); diskGrad.addColorStop(0.5, "rgba(255, 255, 220, 0.9)"); diskGrad.addColorStop(1, "rgba(255, 100, 0, 0)");
+        ctx.beginPath(); ctx.ellipse(sx, sy, sr * 5, sr * 0.5, Math.sin(animFrame * 0.3) * 0.05, 0, Math.PI * 2); ctx.strokeStyle = diskGrad; ctx.lineWidth = sr * 0.4; ctx.stroke();
+        ctx.beginPath(); ctx.arc(sx, sy, sr * 1.1, 0, Math.PI * 2); ctx.strokeStyle = "white"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();
+    }
+}
+
+function addKeplerBody(parent, dist, mass, color, name, ringType = null, isMoon = false, isPreset = false) {
+    const angle = Math.random() * Math.PI * 2;
+    const x = parent.x + Math.cos(angle) * dist, y = parent.y + Math.sin(angle) * dist;
+    const speed = Math.sqrt((G * (parent.mass + mass)) / dist);
+    const vx = parent.vx - Math.sin(angle) * speed, vy = parent.vy + Math.cos(angle) * speed;
+    const body = new Body(x, y, vx, vy, mass, color, name, ringType, isMoon, isPreset);
+    bodies.push(body); return body;
+}
+
+function initSolarSystem() {
+    bodyCounter = 0; supernovaActive = false; supernovaTimer = 0; bodies = [];
+    const sun = new Body(0, 0, 0, 0, 25000, '#ffcc00', "太陽", null, false, false); bodies.push(sun);
+    // 惑星・衛星をよりヒル球内に配置 [距離, 質量, 色, 名前, 輪, 衛星[距離, 質量, 色, 名前]]
+    const data = [
+        [180, 0.1, '#aaaaaa', "水星", null, []], [280, 0.8, '#ffddaa', "金星", null, []],
+        [400, 100, '#44aaff', "地球", null, [[16, 1, "#e0e0e0", "月"]]],
+        [580, 80, '#ff6644', "火星", null, []],
+        [1100, 1800, '#ffcc99', "木星", null, [[32, 10, "#f3e300", "イオ"], [48, 10, "#e1e1e1", "エウロパ"], [68, 15, "#958672", "ガニメデ"]]],
+        [1600, 1200, '#eeddaa', "土星", "h", [[85, 12, "#ffa500", "タイタン"]]],
+        [2200, 600, '#50c878', "天王星", "v", []], [2800, 600, '#120a8f', "海王星", null, [[70, 10, "#ffdfd3", "トリトン"]]]
+    ];
+    data.forEach(p => { 
+        const planet = addKeplerBody(sun, p[0], p[1], p[2], p[3], p[4], false, true); 
+        p[5].forEach(m => addKeplerBody(planet, m[0], m[1], m[2], m[3], null, true, false)); 
+    });
+    zoom = 0.35; offset = { x: 0, y: 0 }; ui.targetSelect.value = "-1"; updateSelect();
+}
+
+function generateRandomSystem() {
+    bodyCounter = 0; supernovaActive = false; bodies = [];
+    const isBinary = Math.random() < 0.2; let sun;
+    if (isBinary) {
+        if (Math.random() < 0.5) {
+            sun = new Body(0, 0, 0, 0, 25000, getColorByMass(25000), generateName()); bodies.push(sun);
+            addKeplerBody(sun, 250, 5000, getColorByMass(5000), generateName());
+        } else {
+            const mA = 15000, mB = 15000, d = 250, v = Math.sqrt(G * (mA+mB)/d) * 0.5;
+            bodies.push(new Body(-d/2, 0, 0, v, mA, getColorByMass(mA), generateName()));
+            sun = new Body(d/2, 0, 0, -v, mB, getColorByMass(mB), generateName()); bodies.push(sun);
+        }
+    } else {
+        sun = new Body(0, 0, 0, 0, 20000 + Math.random()*15000, '#fff', generateName()); bodies.push(sun);
+    }
+    for (let i = 0; i < 10; i++) {
+        const p = addKeplerBody(sun, 600 + Math.random()*2200, 30 + Math.random()*1000, `hsl(${Math.random()*360},70%,60%)`, generateName(), null, false, false);
+        if (Math.random() < 0.4) addKeplerBody(p, 40 + Math.random()*50, 2 + Math.random()*15, "#eee", generateName(), null, true, false);
+    }
+    zoom = 0.25; offset = { x: 0, y: 0 }; ui.targetSelect.value = "-1"; updateSelect();
+}
+
+function loop() {
+    const dt = ui.timeRange ? parseFloat(ui.timeRange.value) : 1;
+    if (!isPaused) {
+        for (let i = 0; i < bodies.length; i++) {
+            const b1 = bodies[i];
+            if (b1.isBlackHole) {
+                for (let j = 0; j < bodies.length; j++) {
+                    if (i === j) continue; const b2 = bodies[j];
+                    const dx = b1.x - b2.x, dy = b1.y - b2.y, d = Math.sqrt(dx*dx + dy*dy);
+                    if (d < b1.radius * 1.5) { bodies.splice(j, 1); updateSelect(); if (j < i) i--; j--; continue; }
+                    const f = (G * b1.mass * b2.mass) / (dx*dx+dy*dy+0.1) * 15; b2.vx += (f * dx / d) / b2.mass * dt; b2.vy += (f * dy / d) / b2.mass * dt;
+                }
+                if (bodies.length === 1) { flashAlpha = 1.0; initSolarSystem(); }
+            } else {
+                for (let j = i + 1; j < bodies.length; j++) {
+                    const b2 = bodies[j]; if (b2.isBlackHole) continue;
+                    const dx = b2.x - b1.x, dy = b2.y - b1.y, d2 = dx*dx + dy*dy + 0.01, d = Math.sqrt(d2);
+                    if (ui.physicsMode.value === 'collision' && d < (b1.radius + b2.radius)) {
+                        const totalM = b1.mass + b2.mass; b1.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/totalM; b1.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/totalM; b1.x = (b1.x*b1.mass + b2.x*b2.mass)/totalM; b1.y = (b1.y*b1.mass + b2.y*b2.mass)/totalM;
+                        b1.mass = totalM; b1.updateRadius(); if (!b1.name.endsWith("系")) b1.name += "系"; bodies.splice(j, 1); updateSelect(); continue;
+                    }
+                    const f = (G * b1.mass * b2.mass) / d2; b1.vx += (f * dx / d) / b1.mass * dt; b1.vy += (f * dy / d) / b1.mass * dt; b2.vx -= (f * dx / d) / b2.mass * dt; b2.vy -= (f * dy / d) / b2.mass * dt;
+                }
+                if (isSNEnabled && !supernovaActive && b1.mass >= 100000) { supernovaActive = true; supernovaTimer = 15; }
+            }
+        }
+    }
+    if (supernovaActive && !isPaused) { supernovaTimer -= (1/60) * dt; if (supernovaTimer <= 0) { flashAlpha = 1.0; supernovaActive = false; let massiveBody = bodies.reduce((p, c) => (p.mass > c.mass) ? p : c); massiveBody.isBlackHole = true; massiveBody.name = "ブラックホール"; massiveBody.updateRadius(); } }
+    ctx.fillStyle = '#000208'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const target = bodies.find(b => b.id === parseInt(ui.targetSelect.value)); if (target) { offset.x = target.x; offset.y = target.y; }
+    bodies.forEach(b => { b.update(dt); b.draw(); });
+    if (supernovaActive) { ctx.fillStyle = "#ff4444"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center"; ctx.fillText("⚠️ 重力崩壊まで: " + supernovaTimer.toFixed(1) + "s", canvas.width/2, 50); }
+    if (flashAlpha > 0) { ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`; ctx.fillRect(0,0,canvas.width, canvas.height); flashAlpha -= 0.05; }
+    if (isDragging && startPos && currentPos) { ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(currentPos.x, currentPos.y); ctx.strokeStyle = '#ffff00'; ctx.stroke(); }
+    requestAnimationFrame(loop);
+}
+
+function updateSelect() { const v = ui.targetSelect.value; ui.targetSelect.innerHTML = '<option value="-1">🔭 自由視点 (Free View)</option>'; bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = (b.isBlackHole?"🕳️ ":"🪐 ") + b.name; if(b.id==v) o.selected=true; ui.targetSelect.appendChild(o); }); }
+ui.resetBtn.onclick = initSolarSystem; ui.randomBtn.onclick = generateRandomSystem;
+ui.pauseBtn.onclick = () => { isPaused = !isPaused; ui.pauseBtn.textContent = isPaused ? "▶️" : "⏸️"; };
+ui.snBtn.onclick = () => { isSNEnabled = !isSNEnabled; ui.snBtn.style.background = isSNEnabled ? "#b06000" : "#333"; };
+ui.labelBtn.onclick = () => { showLabels = !showLabels; ui.labelBtn.style.background = showLabels ? "#0060b0" : "#333"; };
+
+canvas.addEventListener('touchstart', (e) => { if (e.touches.length === 1) { isDragging = true; startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; currentPos = startPos; } else if (e.touches.length === 2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); lastMidPoint = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; } }, { passive: false });
+canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (e.touches.length === 1 && isDragging) { currentPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } else if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); zoom *= (d / lastPinchDist); zoom = Math.min(Math.max(zoom, 0.001), 20); lastPinchDist = d; if (ui.targetSelect.value == "-1") { const m = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 }; offset.x -= (m.x - lastMidPoint.x)/zoom; offset.y -= (m.y - lastMidPoint.y)/zoom; lastMidPoint = m; } } }, { passive: false });
+canvas.addEventListener('touchend', (e) => {
+    if (isDragging && startPos && currentPos) {
+        const sx = (startPos.x - canvas.width/2)/zoom + offset.x, sy = (startPos.y - canvas.height/2)/zoom + offset.y;
+        const config = PRESETS[ui.launchType.value], multiplier = parseFloat(ui.massRange.value);
+        bodies.push(new Body(sx, sy, (currentPos.x - startPos.x)*0.05/zoom, (currentPos.y - startPos.y)*0.05/zoom, config.m * multiplier, config.c, config.n, config.r, false, false)); updateSelect();
+    }
+    isDragging = false;
+});
+window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+initSolarSystem(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
         const f = (G * bh.mass * 0.1) / (d2 + 0.1) * 20;
         this.vx += (f * dx / d) * dt; this.vy += (f * dy / d) * dt;
         this.x += this.vx * dt; this.y += this.vy * dt; this.life -= 0.01 * dt;
