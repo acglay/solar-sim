@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v7.3</title>
+    <title>Solar Simulator v7.4</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -24,7 +24,7 @@
     </style>
 </head>
 <body>
-<div id="version">v7.3 Hybrid Orbit & Focus UI</div>
+<div id="version">v7.4 Smart Labeling & Focus</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
@@ -86,21 +86,194 @@ class Body {
         this.color = color; this.name = name; this.ringType = ringType; this.isMoon = isMoon;
         this.isBlackHole = (name === "ブラックホール");
         this.emoji = (Object.values(PRESETS).find(p => p.n === name) || {e: "🪐"}).e;
-        
-        // ハイブリッド軌道用
-        this.isAnalytic = isMoon;
-        this.parent = null;
-        this.orbitDist = 0;
-        this.angle = 0;
-        
+        this.isAnalytic = isMoon; this.parent = null; this.orbitDist = 0; this.angle = 0;
         this.updateRadius();
     }
     updateRadius() {
         const visualMass = this.isMoon ? this.mass * 12 : this.mass;
         this.radius = Math.max(1.5, Math.log10(this.mass + 1) * 8 * (this.isBlackHole ? 0.4 : (this.isMoon ? 0.6 : 2.5)));
     }
-    draw() {
-        const sx = (this.x - offset.x) * zoom + canvas.width / 2, sy = (this.y - offset.y) * zoom + canvas.height / 2;
+    getDistToSun() { return Math.sqrt(this.x*this.x + this.y*this.y); }
+    drawCore(sx, sy, sr, alpha) {
+        ctx.globalAlpha = alpha;
+        if (this.isBlackHole) {
+            ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = "#000"; ctx.fill();
+            ctx.beginPath(); ctx.arc(sx, sy, sr + 2, 0, Math.PI * 2); ctx.strokeStyle = "white"; ctx.stroke();
+        } else {
+            if (this.ringType === "h") {
+                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.8, sr * 0.8, 0.4, 0, Math.PI * 2); ctx.strokeStyle = "rgba(200, 180, 150, 0.4)"; ctx.lineWidth = 1 * zoom; ctx.stroke();
+            } else if (this.ringType === "v") {
+                ctx.beginPath(); ctx.ellipse(sx, sy, sr * 2.5, sr * 0.6, 1.4, 0, Math.PI * 2); ctx.strokeStyle = "rgba(180, 220, 255, 0.4)"; ctx.lineWidth = 1 * zoom; ctx.stroke();
+            }
+            ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+// ラベルの重なりチェック用
+function isOverlapping(rect1, rect2) {
+    return !(rect1.right < rect2.left || rect1.left > rect2.right || rect1.bottom < rect2.top || rect1.top > rect2.bottom);
+}
+
+function computePhysics(bodyList, dt) {
+    bodyList.forEach(b => {
+        if (b.isAnalytic && b.parent) {
+            const omega = Math.sqrt((G * (b.parent.mass + b.mass)) / Math.pow(b.orbitDist, 3));
+            b.angle += omega * dt;
+            b.x = b.parent.x + Math.cos(b.angle) * b.orbitDist; b.y = b.parent.y + Math.sin(b.angle) * b.orbitDist;
+            bodyList.forEach(other => {
+                if (other === b || other === b.parent) return;
+                const d = Math.sqrt(Math.pow(b.x-other.x,2)+Math.pow(b.y-other.y,2));
+                if (d < 50) { b.isAnalytic = false; const vMag = Math.sqrt((G*(b.parent.mass+b.mass))/b.orbitDist); b.vx = b.parent.vx - Math.sin(b.angle)*vMag; b.vy = b.parent.vy + Math.cos(b.angle)*vMag; }
+            });
+        }
+    });
+
+    const physicsBodies = bodyList.filter(b => !b.isAnalytic);
+    physicsBodies.forEach(b => {
+        b.x += b.vx * dt + 0.5 * b.ax * dt * dt; b.y += b.vy * dt + 0.5 * b.ay * dt * dt;
+        b.oldAx = b.ax; b.oldAy = b.ay; b.ax = 0; b.ay = 0;
+    });
+
+    for (let i = 0; i < bodyList.length; i++) {
+        const b1 = bodyList[i];
+        for (let j = i + 1; j < bodyList.length; j++) {
+            const b2 = bodyList[j], dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx+dy*dy+0.05, d = Math.sqrt(d2), force = (G*b1.mass*b2.mass)/d2;
+            if (!b1.isAnalytic) { b1.ax += (force*dx/d)/b1.mass; b1.ay += (force*dy/d)/b1.mass; }
+            if (!b2.isAnalytic) { b2.ax -= (force*dx/d)/b2.mass; b2.ay -= (force*dy/d)/b2.mass; }
+        }
+    }
+    physicsBodies.forEach(b => { b.vx += 0.5*(b.oldAx+b.ax)*dt; b.vy += 0.5*(b.oldAy+b.ay)*dt; });
+}
+
+function initSolarSystem() {
+    bodyCounter = 0; bodies = [];
+    const sun = new Body(0, 0, 0, 0, PRESETS.sun.m, PRESETS.sun.c, "太陽"); bodies.push(sun);
+    const data = [[387, PRESETS.mercury.m, PRESETS.mercury.c, "水星", null, []],[723, PRESETS.venus.m, PRESETS.venus.c, "金星", null, []],[1000, PRESETS.earth.m, PRESETS.earth.c, "地球", null, [[25, 0.037, "#b0b0b0", "月"]]],[1524, PRESETS.mars.m, PRESETS.mars.c, "火星", null, [[15, 0.0001, "#b59e8a", "フォボス"], [22, 0.0001, "#9d8b7a", "ダイモス"]]],[5203, PRESETS.jupiter.m, PRESETS.jupiter.c, "木星", null, [[110, 0.45, "#e2d06e", "イオ"], [150, 0.40, "#a0a0a0", "エウロパ"], [200, 0.70, "#7a7a7a", "ガニメデ"]]],[9537, PRESETS.saturn.m, PRESETS.saturn.c, "土星", "h", [[250, 0.65, "#d2a01e", "タイタン"]]],[19191, PRESETS.uranus.m, PRESETS.uranus.c, "天王星", "v", []],[30069, PRESETS.neptune.m, PRESETS.neptune.c, "海王星", null, [[280, 0.10, "#90a0b0", "トリトン"]]]];
+    data.forEach(p => {
+        const angle = Math.random()*Math.PI*2, vMag = Math.sqrt((G*(sun.mass+p[1]))/p[0]);
+        const planet = new Body(Math.cos(angle)*p[0], Math.sin(angle)*p[0], -Math.sin(angle)*vMag, Math.cos(angle)*vMag, p[1], p[2], p[3], p[4], false);
+        bodies.push(planet); p[5].forEach(m => { const moon = new Body(0,0,0,0,m[1],m[2],m[3],null,true); moon.parent = planet; moon.orbitDist = m[0]; moon.angle = Math.random()*Math.PI*2; bodies.push(moon); });
+    });
+    updateSelect();
+}
+
+function loop() {
+    if (!ui.timeRange) return requestAnimationFrame(loop);
+    const timeScale = parseFloat(ui.timeRange.value);
+    if (!isPaused) {
+        const subSteps = isHighPrecision ? 128 : 32; const dt = (timeScale * 0.5) / subSteps;
+        for (let s = 0; s < subSteps; s++) computePhysics(bodies, dt);
+        for (let i = 0; i < bodies.length; i++) {
+            for (let j = i + 1; j < bodies.length; j++) {
+                const b1 = bodies[i], b2 = bodies[j], dx = b2.x-b1.x, dy = b2.y-b1.y, d = Math.sqrt(dx*dx+dy*dy);
+                if (d < (b1.radius + b2.radius) * 0.6 && ui.physicsMode.value === 'collision') {
+                    const s = b1.mass > b2.mass ? b1 : b2, v = b1.mass > b2.mass ? b2 : b1;
+                    s.vx = (b1.vx*b1.mass + b2.vx*b2.mass)/(b1.mass+b2.mass); s.vy = (b1.vy*b1.mass + b2.vy*b2.mass)/(b1.mass+b2.mass);
+                    s.mass += v.mass; s.updateRadius(); bodies.splice(bodies.indexOf(v), 1); updateSelect(); j--; break;
+                }
+            }
+        }
+    }
+
+    ctx.fillStyle = '#000208'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // フォーカス位置の調整 (UI領域を完璧に避ける)
+    const target = bodies.find(b => b.id === parseInt(ui.targetSelect.value));
+    if (target) {
+        const uiH = panel.offsetHeight + 20; // UIパネルの高さ + マージン
+        const visibleH = canvas.height - uiH;
+        const targetScreenY = visibleH / 2; // 可視領域のど真ん中
+        offset.x = target.x;
+        offset.y = target.y - (canvas.height/2 - targetScreenY) / zoom;
+    }
+
+    // 全天体描画
+    bodies.forEach(b => {
+        const sx = (b.x - offset.x) * zoom + canvas.width / 2, sy = (b.y - offset.y) * zoom + canvas.height / 2;
+        const sr = Math.max(0.5, b.radius * zoom);
+        b.drawCore(sx, sy, sr, b.isMoon ? Math.min(1.0, zoom * 2) : 1.0);
+    });
+
+    // スマートラベル描画 (内側優先・衝突回避)
+    if (showLabels) {
+        const sortedBodies = [...bodies].sort((a,b) => a.getDistToSun() - b.getDistToSun());
+        let drawnRects = [];
+        sortedBodies.forEach(b => {
+            if (b.isMoon && zoom <= 0.5) return;
+            const sx = (b.x - offset.x) * zoom + canvas.width / 2, sy = (b.y - offset.y) * zoom + canvas.height / 2;
+            const sr = Math.max(0.5, b.radius * zoom);
+            let lineLen = 15;
+            const fontSize = b.isMoon ? 9 : 11;
+            const textWidth = ctx.measureText(b.name).width + 10;
+            
+            let labelRect, lx, ly;
+            // 重なりがなくなるまで線を伸ばす
+            for (let i = 0; i < 8; i++) {
+                lx = sx + lineLen; ly = sy - sr - lineLen;
+                labelRect = { left: lx, top: ly - fontSize, right: lx + textWidth, bottom: ly + 5 };
+                if (!drawnRects.some(r => isOverlapping(r, labelRect))) break;
+                lineLen += 15;
+            }
+            
+            ctx.beginPath(); ctx.moveTo(sx, sy - sr); ctx.lineTo(lx, ly);
+            ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.stroke();
+            ctx.fillStyle = "white"; ctx.font = `${fontSize}px sans-serif`; ctx.textAlign = "left";
+            ctx.fillText(b.name, lx + 2, ly);
+            drawnRects.push(labelRect);
+        });
+    }
+
+    if (isDragging && startPos && currentMousePos) {
+        ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(currentMousePos.x, currentMousePos.y);
+        ctx.strokeStyle = "rgba(255, 255, 0, 0.5)"; ctx.lineWidth = 2; ctx.stroke();
+    }
+    requestAnimationFrame(loop);
+}
+
+function handleStart(x, y) { isDragging = true; startPos = { x, y }; currentMousePos = { x, y }; }
+function handleMove(x, y) { if (!isDragging) return; currentMousePos = { x, y }; if (ui.targetSelect.value == "-1") { offset.x -= (x - startPos.x) / zoom; offset.y -= (y - startPos.y) / zoom; startPos = { x, y }; } }
+function handleEnd(x, y) {
+    if (isDragging && startPos && ui.targetSelect.value != "-1") {
+        const sx = (startPos.x - canvas.width/2)/zoom + offset.x, sy = (startPos.y - canvas.height/2)/zoom + offset.y;
+        const vx = (x - startPos.x) * 0.05 / zoom, vy = (y - startPos.y) * 0.05 / zoom;
+        const config = PRESETS[ui.launchType.value];
+        const m = (ui.launchType.value === 'sun' || ui.launchType.value === 'blackhole') ? config.m * parseFloat(ui.massRange.value) : config.m;
+        bodies.push(new Body(sx, sy, vx, vy, m, config.c, config.n, config.r)); updateSelect();
+    }
+    isDragging = false; startPos = null;
+}
+
+canvas.onmousedown = (e) => handleStart(e.clientX, e.clientY);
+window.onmousemove = (e) => handleMove(e.clientX, e.clientY);
+window.onmouseup = (e) => handleEnd(e.clientX, e.clientY);
+canvas.onwheel = (e) => { e.preventDefault(); zoom *= (e.deltaY > 0 ? 0.8 : 1.25); zoom = Math.max(0.0001, Math.min(zoom, 100)); };
+canvas.ontouchstart = (e) => { if (e.touches.length === 1) handleStart(e.touches[0].clientX, e.touches[0].clientY); else if (e.touches.length === 2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); } };
+canvas.ontouchmove = (e) => { e.preventDefault(); if (e.touches.length === 1) handleMove(e.touches[0].clientX, e.touches[0].clientY); else if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); if (lastPinchDist > 0) { zoom *= (d / lastPinchDist); zoom = Math.max(0.0001, Math.min(zoom, 100)); } lastPinchDist = d; } };
+canvas.ontouchend = (e) => handleEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+
+function updateSelect() {
+    if(!ui.targetSelect) return;
+    const v = ui.targetSelect.value; ui.targetSelect.innerHTML = '<option value="-1">🔭 自由視点</option>';
+    bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = b.emoji + " " + b.name; ui.targetSelect.appendChild(o); });
+    ui.targetSelect.value = v;
+}
+
+window.onload = () => {
+    ['targetSelect','physicsMode','launchType','massRange','timeRange','pauseBtn','resetBtn','randomBtn','labelBtn','precisionBtn','debugBtn','massResetBtn','timeResetBtn'].forEach(id => ui[id] = document.getElementById(id));
+    ui.resetBtn.onclick = () => { initSolarSystem(); updateSelect(); };
+    ui.pauseBtn.onclick = () => { isPaused = !isPaused; ui.pauseBtn.textContent = isPaused ? "▶️" : "⏸️"; };
+    ui.labelBtn.onclick = () => { showLabels = !showLabels; ui.labelBtn.style.background = showLabels ? "#0060b0" : "#333"; };
+    ui.precisionBtn.onclick = () => { isHighPrecision = !isHighPrecision; ui.precisionBtn.style.background = isHighPrecision ? "#00b060" : "#333"; };
+    ui.launchType.onchange = () => { const s = (ui.launchType.value === 'sun' || ui.launchType.value === 'blackhole'); ui.massRange.disabled = !s; };
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    initSolarSystem(); loop();
+};
+</script>
+</body>
+</html>
+　        const sx = (this.x - offset.x) * zoom + canvas.width / 2, sy = (this.y - offset.y) * zoom + canvas.height / 2;
         const sr = Math.max(0.5, this.radius * zoom);
         ctx.globalAlpha = this.isMoon ? Math.min(1.0, zoom * 2) : 1.0;
         
