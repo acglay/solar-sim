@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v4.2</title>
+    <title>Solar Simulator v4.3 - Advanced Physics</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; }
@@ -41,7 +41,7 @@
         <select id="launchType">
             <option value="sun">太陽</option><option value="earth" selected>地球</option>
             <option value="mercury">水星</option><option value="venus">金星</option>
-            <option value="mars">火星</option><option value="jupiter">木星</option>
+            <option value="mars">火星</option><option value="jupiter">木木星</option>
             <option value="saturn">土星</option><option value="uranus">天王星</option>
             <option value="neptune">海王星</option><option value="pluto">冥王星</option>
         </select>
@@ -68,6 +68,13 @@ const G = 1;
 const PRESETS = {
     sun: { m: 20000, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.1, c: '#aaaaaa', n: "水星" }, venus: { m: 0.8, c: '#ffddaa', n: "金星" }, earth: { m: 1, c: '#44aaff', n: "地球" }, mars: { m: 0.1, c: '#ff6644', n: "火星" }, jupiter: { m: 318, c: '#ffcc99', n: "木星" }, saturn: { m: 95, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 14, c: '#aaffff', n: "天王星", r: "v" }, neptune: { m: 17, c: '#6666ff', n: "海王星" }, pluto: { m: 0.002, c: '#ccbbbb', n: "冥王星" }
 };
+
+const NAME_GEN = {
+    p1: ["ゼウス", "アエテルナ", "ベスタ", "ノヴァ", "グリエーゼ", "ケプラー", "オシリス", "テラ", "ルナ", "ヘリオス"],
+    p2: ["・プライム", "・ベータ", "・マギナ", "・オリジン", "・セカンド", "・ヴォイド", "・コア", "・環", "・零", "・極"]
+};
+
+function generateName() { return NAME_GEN.p1[Math.floor(Math.random()*NAME_GEN.p1.length)] + NAME_GEN.p2[Math.floor(Math.random()*NAME_GEN.p2.length)]; }
 
 function lerpColor(c1, c2, f) {
     const r1 = parseInt(c1.substr(1, 2), 16), g1 = parseInt(c1.substr(3, 2), 16), b1 = parseInt(c1.substr(5, 2), 16);
@@ -134,26 +141,82 @@ class Body {
 
 class RingEffect { constructor(x, y, color) { this.x = x; this.y = y; this.color = color; this.life = 1.0; } draw() { this.life -= 0.03; const sx = (this.x - offset.x) * zoom + canvas.width / 2, sy = (this.y - offset.y) * zoom + canvas.height / 2; ctx.beginPath(); ctx.arc(sx, sy, (1.0 - this.life) * 100 * zoom, 0, Math.PI * 2); ctx.strokeStyle = this.color; ctx.globalAlpha = this.life; ctx.lineWidth = 2; ctx.stroke(); ctx.globalAlpha = 1.0; } }
 
+function addKeplerianBody(parent, dist, mass, color, name, ringType = null, isMoon = false) {
+    const angle = Math.random() * Math.PI * 2;
+    const x = parent.x + Math.cos(angle) * dist;
+    const y = parent.y + Math.sin(angle) * dist;
+    // v = sqrt(GM / r)
+    const orbitalSpeed = Math.sqrt((G * parent.mass) / dist);
+    const vx = parent.vx - Math.sin(angle) * orbitalSpeed;
+    const vy = parent.vy + Math.cos(angle) * orbitalSpeed;
+    const body = new Body(x, y, vx, vy, mass, color, name, ringType);
+    bodies.push(body);
+    return body;
+}
+
 function initSolarSystem() {
     bodyCounter = 0; supernovaActive = false; supernovaTimer = 0; bodies = [];
-    bodies.push(new Body(0, 0, 0, 0, 20000, '#ffcc00', "太陽"));
-    const data = [[150, 11.5, 0.1, '#aaa', "水星", null, []], [250, 9, 0.8, '#fda', "金星", null, []], [380, 7.2, 1, '#4af', "地球", null, [[15, 2.5, 0.01, "#ccc", "月"]]], [550, 6, 0.1, '#f64', "火星", null, []], [1000, 4.4, 318, '#fc9', "木星", null, [[40, 3, 0.1, "#fcc", "イオ"], [60, 2.4, 0.1, "#ccf", "エウロパ"], [85, 2, 0.2, "#cfc", "ガニメデ"]]], [1500, 3.6, 95, '#eda', "土星", "h", [[100, 1.5, 0.1, "#f96", "タイタン"]]], [2000, 3.1, 14, '#aff', "天王星", "v", []], [2500, 2.8, 17, '#66f', "海王星", null, [[80, 1.4, 0.05, "#ddd", "トリトン"]]], [3000, 2.5, 0.002, '#cbb', "冥王星", null, []]];
-    data.forEach(p => {
-        let angle = Math.random() * Math.PI * 2; let px = Math.cos(angle) * p[0], py = Math.sin(angle) * p[0], vx = -Math.sin(angle) * p[1], vy = Math.cos(angle) * p[1];
-        let planet = new Body(px, py, vx, vy, p[2], p[3], p[4], p[5]); bodies.push(planet);
-        p[6].forEach(m => { let ma = Math.random() * Math.PI * 2; bodies.push(new Body(px + Math.cos(ma) * m[0], py + Math.sin(ma) * m[0], vx - Math.sin(ma) * m[1], vy + Math.cos(ma) * m[1], m[2], m[3], m[4])); });
+    const sun = new Body(0, 0, 0, 0, 20000, '#ffcc00', "太陽");
+    bodies.push(sun);
+    
+    // 惑星[距離, 質量, 色, 名前, 輪, 衛星]
+    const planets = [
+        [150, 0.1, '#aaaaaa', "水星", null, []],
+        [250, 0.8, '#ffddaa', "金星", null, []],
+        [380, 1.0, '#44aaff', "地球", null, [[18, 0.01, "#ccc", "月"]]],
+        [550, 0.1, '#ff6644', "火星", null, []],
+        [1000, 318, '#ffcc99', "木星", null, [[40, 0.1, "#fcc", "イオ"], [55, 0.1, "#ccf", "エウロパ"], [75, 0.2, "#cfc", "ガニメデ"]]],
+        [1500, 95, '#eeddaa', "土星", "h", [[100, 0.15, "#f96", "タイタン"]]],
+        [2000, 14, '#aaffff', "天王星", "v", []],
+        [2500, 17, '#6666ff', "海王星", null, [[80, 0.05, "#ddd", "トリトン"]]],
+        [3000, 0.002, '#ccbbbb', "冥王星", null, []]
+    ];
+
+    planets.forEach(p => {
+        const planet = addKeplerianBody(sun, p[0], p[1], p[2], p[3], p[4]);
+        p[5].forEach(m => {
+            addKeplerianBody(planet, m[0], m[1], m[2], m[3], null, true);
+        });
     });
     zoom = 0.4; offset = { x: 0, y: 0 }; targetSelect.value = "-1"; updateSelect();
 }
 
 function generateRandomSystem() {
     bodyCounter = 0; supernovaActive = false; bodies = [];
-    if (Math.random() < 0.1) {
-        bodies.push(new Body(-100, 0, 0, 5, 12000, '#ffaa00', "連星A")); bodies.push(new Body(100, 0, 0, -5, 12000, '#00aaff', "連星B"));
-    } else { bodies.push(new Body(0, 0, 0, 0, 20000 + Math.random()*10000, '#fff', "中央星")); }
-    for (let i = 0; i < 15; i++) {
-        let d = 400 + Math.random() * 2000, a = Math.random() * Math.PI * 2, m = 0.1 + Math.random() * 500, v = Math.sqrt(25000 / d) * (0.8 + Math.random()*0.4);
-        bodies.push(new Body(Math.cos(a)*d, Math.sin(a)*d, -Math.sin(a)*v, Math.cos(a)*v, m, `hsl(${Math.random()*360}, 70%, 60%)`, "迷子惑星"));
+    const isBinary = Math.random() < 0.2; // 20%
+    const rotSpeedMod = 0.5 + Math.random() * 1.5; // 回転スピードのランダム性
+    let centralMass = 0;
+
+    if (isBinary) {
+        if (Math.random() < 0.5) { // 重い恒星静止モード
+            const sunA = new Body(0, 0, 0, 0, 25000, getColorByMass(25000), generateName());
+            bodies.push(sunA);
+            const sunB = addKeplerianBody(sunA, 250, 5000, getColorByMass(5000), generateName());
+            centralMass = 30000;
+        } else { // 共通重心モード
+            const massA = 10000 + Math.random()*10000;
+            const massB = 10000 + Math.random()*10000;
+            const dist = 200;
+            const v = Math.sqrt(G * (massA + massB) / dist) * 0.5;
+            bodies.push(new Body(-dist/2, 0, 0, v * rotSpeedMod, massA, getColorByMass(massA), generateName()));
+            bodies.push(new Body(dist/2, 0, 0, -v * rotSpeedMod, massB, getColorByMass(massB), generateName()));
+            centralMass = massA + massB;
+        }
+    } else {
+        const mass = 15000 + Math.random()*10000;
+        bodies.push(new Body(0, 0, 0, 0, mass, getColorByMass(mass), generateName()));
+        centralMass = mass;
+    }
+
+    const sun = bodies[0];
+    for (let i = 0; i < 12; i++) {
+        const d = 500 + Math.random() * 2500;
+        const m = 0.1 + Math.pow(Math.random(), 3) * 500;
+        const planet = addKeplerianBody(sun, d, m, `hsl(${Math.random()*360}, 70%, 60%)`, generateName());
+        // たまに衛星
+        if (Math.random() < 0.3) {
+            addKeplerianBody(planet, 30 + Math.random()*50, 0.01 + Math.random()*0.1, "#eee", generateName());
+        }
     }
     zoom = 0.3; offset = { x: 0, y: 0 }; targetSelect.value = "-1"; updateSelect();
 }
@@ -161,7 +224,6 @@ function generateRandomSystem() {
 function loop() {
     const dt = parseFloat(timeInput.value);
     if (!isPaused) {
-        const blackHoles = bodies.filter(b => b.isBlackHole);
         for (let i = 0; i < bodies.length; i++) {
             const b1 = bodies[i];
             if (b1.isBlackHole) {
@@ -174,7 +236,7 @@ function loop() {
                     }
                     const dx = b1.x - b2.x, dy = b1.y - b2.y, d = Math.sqrt(dx*dx + dy*dy);
                     if (d < b1.radius * 3 && !b2.isBlackHole) {
-                        for (let k = 0; k < 30; k++) { b2.spaghettiPoints.push(new SpaghettiPoint(b2.x + (Math.random()-0.5)*10, b2.y + (Math.random()-0.5)*10, b2.vx, b2.vy, b2.color)); }
+                        for (let k = 0; k < 20; k++) { b2.spaghettiPoints.push(new SpaghettiPoint(b2.x + (Math.random()-0.5)*10, b2.y + (Math.random()-0.5)*10, b2.vx, b2.vy, b2.color)); }
                         continue;
                     }
                     const f = (G * b1.mass * b2.mass) / (dx*dx+dy*dy+10) * 15;
