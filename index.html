@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v7.6</title>
+    <title>Solar Simulator v7.7</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -24,7 +24,7 @@
     </style>
 </head>
 <body>
-<div id="version">v7.6 Precise & Clean Focus</div>
+<div id="version">v7.7 Precision Focus & Hybrid Transition</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
@@ -62,22 +62,11 @@
 <script>
 const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
 const panel = document.getElementById('panel');
-let ui = {};
-let bodies = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, startPos = null, currentMousePos = null, isPaused = false, bodyCounter = 0, showLabels = true, isHighPrecision = true, lastPinchDist = 0, lastMid = null;
+let bodies = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, startPos = null, currentPos = null, isPaused = false, bodyCounter = 0, showLabels = true, isHighPrecision = true, showDebug = false, lastPinchDist = 0, lastMid = null;
 const G = 1;
 
 const PRESETS = {
-    sun: { m: 1000000, c: '#ffcc00', n: "太陽", e: "☀️" },
-    mercury: { m: 0.166, c: '#aaaaaa', n: "水星", e: "☿️" },
-    venus: { m: 2.447, c: '#ffddaa', n: "金星", e: "♀️" },
-    earth: { m: 3.003, c: '#44aaff', n: "地球", e: "🌍" },
-    mars: { m: 0.322, c: '#ff6644', n: "火星", e: "♂️" },
-    jupiter: { m: 954.7, c: '#ffcc99', n: "木星", e: "♃" },
-    saturn: { m: 285.8, c: '#eeddaa', n: "土星", e: "♄", r: "h" },
-    uranus: { m: 43.66, c: '#50c878', n: "天王星", e: "⛢", r: "v" },
-    neptune: { m: 51.51, c: '#120a8f', n: "海王星", e: "♆" },
-    pluto: { m: 0.006, c: '#ccbbbb', n: "冥王星", e: "♇" },
-    blackhole: { m: 5000000, c: '#000', n: "ブラックホール", e: "🕳️" }
+    sun: { m: 1000000, c: '#ffcc00', n: "太陽", e: "☀️" }, mercury: { m: 0.166, c: '#aaaaaa', n: "水星", e: "☿️" }, venus: { m: 2.447, c: '#ffddaa', n: "金星", e: "♀️" }, earth: { m: 3.003, c: '#44aaff', n: "地球", e: "🌍" }, mars: { m: 0.322, c: '#ff6644', n: "火星", e: "♂️" }, jupiter: { m: 954.7, c: '#ffcc99', n: "木星", e: "♃" }, saturn: { m: 285.8, c: '#eeddaa', n: "土星", e: "♄", r: "h" }, uranus: { m: 43.66, c: '#50c878', n: "天王星", e: "⛢", r: "v" }, neptune: { m: 51.51, c: '#120a8f', n: "海王星", e: "♆" }, pluto: { m: 0.006, c: '#ccbbbb', n: "冥王星", e: "♇" }, blackhole: { m: 5000000, c: '#000', n: "ブラックホール", e: "🕳️" }
 };
 
 class Body {
@@ -95,11 +84,185 @@ class Body {
 }
 
 function computePhysics(bodyList, dt) {
-    // 1. 解析軌道の更新
+    // 1. 加速度リセット
+    bodyList.forEach(b => { b.oldAx = b.ax; b.oldAy = b.ay; b.ax = 0; b.ay = 0; b.extAx = 0; b.extAy = 0; });
+
+    // 2. 万有引力の計算
+    for (let i = 0; i < bodyList.length; i++) {
+        const b1 = bodyList[i];
+        for (let j = i + 1; j < bodyList.length; j++) {
+            const b2 = bodyList[j], dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx+dy*dy+0.01, d = Math.sqrt(d2), f = (G*b1.mass*b2.mass)/d2;
+            const ax = (f*dx/d)/b1.mass, ay = (f*dy/d)/b1.mass;
+            b1.ax += ax; b1.ay += ay;
+            b2.ax -= (f*dx/d)/b2.mass; b2.ay -= (f*dy/d)/b2.mass;
+            
+            // 解析軌道の崩壊判定用: 親以外からの引力を集計
+            if (b1.isAnalytic && b2 !== b1.parent) { b1.extAx += ax; b1.extAy += ay; }
+            if (b2.isAnalytic && b1 !== b2.parent) { b2.extAx -= (f*dx/d)/b2.mass; b2.extAy -= (f*dy/d)/b2.mass; }
+        }
+    }
+
+    // 3. 軌道更新 & 状態遷移
     bodyList.forEach(b => {
         if (b.isAnalytic && b.parent) {
-            const omega = Math.sqrt((G * (b.parent.mass + b.mass)) / Math.pow(b.orbitDist, 3));
-            b.angle += omega * dt;
+            // 親惑星からの引力の大きさを計算
+            const pDx = b.parent.x - b.x, pDy = b.parent.y - b.y, pD2 = pDx*pDx + pDy*pDy;
+            const parentAcc = (G * b.parent.mass) / pD2;
+            const extAcc = Math.sqrt(b.extAx*b.extAx + b.extAy*b.extAy);
+            
+            // 外部干渉が親の引力の 5% を超えたらシミュレーションへ
+            if (extAcc > parentAcc * 0.05) {
+                b.isAnalytic = false;
+                const vMag = Math.sqrt((G * (b.parent.mass + b.mass)) / b.orbitDist);
+                b.vx = b.parent.vx - Math.sin(b.angle) * vMag; b.vy = b.parent.vy + Math.cos(b.angle) * vMag;
+            } else {
+                const omega = Math.sqrt((G * (b.parent.mass + b.mass)) / Math.pow(b.orbitDist, 3));
+                b.angle += omega * dt;
+                b.x = b.parent.x + Math.cos(b.angle) * b.orbitDist; b.y = b.parent.y + Math.sin(b.angle) * b.orbitDist;
+                return; // 解析軌道時はここで終了
+            }
+        }
+        // 物理演算 (Verlet)
+        b.x += b.vx * dt + 0.5 * b.oldAx * dt * dt; b.y += b.vy * dt + 0.5 * b.oldAy * dt * dt;
+        b.vx += 0.5 * (b.oldAx + b.ax) * dt; b.vy += 0.5 * (b.oldAy + b.ay) * dt;
+    });
+}
+
+function initSolarSystem() {
+    bodyCounter = 0; bodies = [];
+    const sun = new Body(0, 0, 0, 0, PRESETS.sun.m, PRESETS.sun.c, "太陽"); bodies.push(sun);
+    const data = [[387, PRESETS.mercury.m, PRESETS.mercury.c, "水星", null, []],[723, PRESETS.venus.m, PRESETS.venus.c, "金星", null, []],[1000, PRESETS.earth.m, PRESETS.earth.c, "地球", null, [[25, 0.037, "#b0b0b0", "月"]]],[1524, PRESETS.mars.m, PRESETS.mars.c, "火星", null, [[12, 0.0001, "#b59e8a", "フォボス"], [18, 0.0001, "#9d8b7a", "ダイモス"]]],[5203, PRESETS.jupiter.m, PRESETS.jupiter.c, "木星", null, [[110, 0.45, "#e2d06e", "イオ"], [150, 0.40, "#a0a0a0", "エウロパ"], [200, 0.70, "#7a7a7a", "ガニメデ"]]],[9537, PRESETS.saturn.m, PRESETS.saturn.c, "土星", "h", [[250, 0.65, "#d2a01e", "タイタン"]]],[19191, PRESETS.uranus.m, PRESETS.uranus.c, "天王星", "v", []],[30069, PRESETS.neptune.m, PRESETS.neptune.c, "海王星", null, [[280, 0.10, "#90a0b0", "トリトン"]]]];
+    data.forEach(p => {
+        const angle = Math.random()*Math.PI*2, vMag = Math.sqrt((G*(sun.mass+p[1]))/p[0]);
+        const planet = new Body(Math.cos(angle)*p[0], Math.sin(angle)*p[0], -Math.sin(angle)*vMag, Math.cos(angle)*vMag, p[1], p[2], p[3], p[4], false);
+        bodies.push(planet); p[5].forEach(m => { const moon = new Body(0,0,0,0,m[1],m[2],m[3],null,true); moon.parent = planet; moon.orbitDist = m[0]; moon.angle = Math.random()*Math.PI*2; bodies.push(moon); });
+    });
+    updateSelect();
+}
+
+function loop() {
+    const timeScale = parseFloat(document.getElementById('timeRange').value);
+    if (!isPaused) {
+        const subSteps = isHighPrecision ? 128 : 32; const dt = (timeScale * 0.5) / subSteps;
+        for (let s = 0; s < subSteps; s++) computePhysics(bodies, dt);
+    }
+    
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // 完璧なフォーカス: (VisibleHeight / 2)
+    const targetId = parseInt(document.getElementById('targetSelect').value);
+    const target = bodies.find(b => b.id === targetId);
+    if (target) {
+        const panelH = panel.offsetHeight;
+        offset.x = target.x;
+        offset.y = target.y + (panelH / (2 * zoom));
+    }
+
+    bodies.forEach(b => {
+        const sx = (b.x - offset.x) * zoom + canvas.width / 2, sy = (b.y - offset.y) * zoom + canvas.height / 2;
+        const sr = Math.max(3, b.radius * zoom);
+        ctx.globalAlpha = b.isMoon ? Math.min(1.0, zoom * 2) : 1.0;
+        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2); ctx.fillStyle = b.color; ctx.fill();
+        if (b.ringType) { ctx.beginPath(); ctx.ellipse(sx, sy, sr*2.5, sr*0.6, b.ringType==='h'?0.4:1.4, 0, Math.PI*2); ctx.strokeStyle="rgba(255,255,255,0.2)"; ctx.stroke(); }
+    });
+
+    if (showLabels) {
+        const sorted = [...bodies].sort((a,b) => b.mass - a.mass);
+        let drawnRects = [];
+        sorted.forEach(b => {
+            const sx = (b.x - offset.x) * zoom + canvas.width / 2, sy = (b.y - offset.y) * zoom + canvas.height / 2;
+            const sr = Math.max(3, b.radius * zoom);
+            if (b.isMoon && zoom < 1.0) return;
+            const fontSize = b.isMoon ? 9 : 12;
+            const lx = sx + 15, ly = sy - sr - 15;
+            const text = b.name, rect = { left: lx, top: ly-fontSize, right: lx+60, bottom: ly+5 };
+            if (!drawnRects.some(r => !(r.right<rect.left || r.left>rect.right || r.bottom<rect.top || r.top>rect.bottom))) {
+                ctx.beginPath(); ctx.moveTo(sx, sy-sr); ctx.lineTo(lx, ly); ctx.strokeStyle="rgba(255,255,255,0.3)"; ctx.stroke();
+                ctx.fillStyle="white"; ctx.font=`${fontSize}px sans-serif`; ctx.fillText(text, lx+2, ly);
+                drawnRects.push(rect);
+            }
+        });
+    }
+    if (isDragging && startPos && currentPos) {
+        ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(currentPos.x, currentPos.y);
+        ctx.strokeStyle="rgba(0,255,100,0.5)"; ctx.stroke();
+    }
+    requestAnimationFrame(loop);
+}
+
+// 入力処理の刷新
+function getTouchPos(e) { return {x: e.touches[0].clientX, y: e.touches[0].clientY}; }
+canvas.onmousedown = (e) => { isDragging = true; startPos = {x:e.clientX, y:e.clientY}; currentPos = startPos; };
+window.onmousemove = (e) => { if(!isDragging) return; currentPos = {x:e.clientX, y:e.clientY}; };
+window.onmouseup = (e) => {
+    if(isDragging && document.getElementById('targetSelect').value != "-1") {
+        const sx = (startPos.x - canvas.width/2)/zoom+offset.x, sy = (startPos.y - canvas.height/2)/zoom+offset.y;
+        const vx = (e.clientX-startPos.x)*0.06/zoom, vy = (e.clientY-startPos.y)*0.06/zoom;
+        const type = document.getElementById('launchType').value; const c = PRESETS[type];
+        const m = (type==='sun'||type==='blackhole') ? c.m * parseFloat(document.getElementById('massRange').value) : c.m;
+        bodies.push(new Body(sx, sy, vx, vy, m, c.c, c.n, c.r)); updateSelect();
+    }
+    isDragging = false;
+};
+
+canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) { isDragging = true; startPos = getTouchPos(e); currentPos = startPos; }
+    else if (e.touches.length === 2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); lastMid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; }
+}, {passive: false});
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1 && isDragging) { currentPos = getTouchPos(e); }
+    else if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+        const mid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2};
+        zoom *= (d/lastPinchDist); offset.x -= (mid.x-lastMid.x)/zoom; offset.y -= (mid.y-lastMid.y)/zoom;
+        lastPinchDist = d; lastMid = mid;
+    }
+}, {passive: false});
+canvas.addEventListener('touchend', (e) => {
+    if (isDragging && startPos && e.changedTouches.length === 1) {
+        const ex = e.changedTouches[0].clientX, ey = e.changedTouches[0].clientY;
+        const sx = (startPos.x - canvas.width/2)/zoom+offset.x, sy = (startPos.y - canvas.height/2)/zoom+offset.y;
+        const vx = (ex-startPos.x)*0.06/zoom, vy = (ey-startPos.y)*0.06/zoom;
+        const type = document.getElementById('launchType').value; const c = PRESETS[type];
+        bodies.push(new Body(sx, sy, vx, vy, c.m, c.c, c.n, c.r)); updateSelect();
+    }
+    isDragging = false;
+});
+
+function updateSelect() {
+    const sel = document.getElementById('targetSelect'); if(!sel) return;
+    const v = sel.value; sel.innerHTML = '<option value="-1">🔭 自由視点</option>';
+    bodies.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = b.emoji + " " + b.name; sel.appendChild(o); });
+    sel.value = v;
+}
+
+// ボタン機能の完全な再バインド
+window.onload = () => {
+    document.getElementById('resetBtn').onclick = () => { initSolarSystem(); updateSelect(); };
+    document.getElementById('randomBtn').onclick = () => { 
+        bodyCounter = 0; bodies = []; const sun = new Body(0,0,0,0,1000000,'#fff','太陽'); bodies.push(sun);
+        for(let i=0;i<10;i++) bodies.push(createOrbitingBody(sun, 1000+Math.random()*8000, 1+Math.random()*100, `hsl(${Math.random()*360},70%,60%)`, "惑星"+(i+1)));
+        updateSelect();
+    };
+    document.getElementById('pauseBtn').onclick = function() { isPaused = !isPaused; this.textContent = isPaused ? "▶️" : "⏸️"; };
+    document.getElementById('labelBtn').onclick = function() { showLabels = !showLabels; this.style.background = showLabels ? "#0060b0" : "#333"; };
+    document.getElementById('precisionBtn').onclick = function() { isHighPrecision = !isHighPrecision; this.style.background = isHighPrecision ? "#00b060" : "#333"; };
+    document.getElementById('debugBtn').onclick = function() { showDebug = !showDebug; this.style.background = showDebug ? "#b0a000" : "#333"; };
+    document.getElementById('massResetBtn').onclick = () => document.getElementById('massRange').value = 1;
+    document.getElementById('timeResetBtn').onclick = () => document.getElementById('timeRange').value = 1.5;
+    document.getElementById('launchType').onchange = () => { const s = (document.getElementById('launchType').value==='sun'||document.getElementById('launchType').value==='blackhole'); document.getElementById('massRange').disabled = !s; };
+    
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    initSolarSystem(); loop();
+};
+function createOrbitingBody(p, dist, m, c, n) {
+    const a = Math.random()*Math.PI*2, v = Math.sqrt((G*(p.mass+m))/dist);
+    return new Body(p.x+Math.cos(a)*dist, p.y+Math.sin(a)*dist, p.vx-Math.sin(a)*v, p.vy+Math.cos(a)*v, m, c, n);
+}
+</script>
+</body>
+</html>
             b.x = b.parent.x + Math.cos(b.angle) * b.orbitDist;
             b.y = b.parent.y + Math.sin(b.angle) * b.orbitDist;
             // 物理への切り替え判定 (1本指ショットなどで天体が近づいた場合)
