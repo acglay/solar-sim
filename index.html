@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v25.0</title>
+    <title>Solar Simulator v26.0</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -25,7 +25,7 @@
     </style>
 </head>
 <body>
-<div id="version">v25.0 Space-Fixed Paths & Orbit LOD</div>
+<div id="version">v26.0 Selective Fixes: Satellite Speed, Gacha, Launch</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row">
@@ -75,6 +75,22 @@ const panel = document.getElementById('panel');
 let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, isPanning = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, orbitHistoryLength = 300, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false, lastTapTime = 0;
 const G = 1, M_SUN = 1000000, M_EARTH = 3.003;
 
+const KANA = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ";
+const BASE_NAMES = ["ゼウス", "アエテルナ", "ベスタ", "ノヴァ", "オシリス", "テラ", "ヘリオス", "クロノス", "ガイア"];
+
+function mutateName(name) {
+    let chars = name.split('');
+    let mutationCount = Math.max(1, Math.floor(chars.length * 0.2));
+    for(let i=0; i<mutationCount; i++) chars[Math.floor(Math.random()*chars.length)] = KANA[Math.floor(Math.random()*KANA.length)];
+    return chars.join('');
+}
+
+function getSuffix(n) {
+    let s = ""; n++;
+    while(n > 0) { let m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - m) / 26); }
+    return s;
+}
+
 const PRESETS = {
     sun: { m: M_SUN, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.166, c: '#aaaaaa', n: "水星" },
     venus: { m: 2.447, c: '#ffddaa', n: "金星" }, earth: { m: M_EARTH, c: '#44aaff', n: "地球" },
@@ -116,7 +132,8 @@ function computePhysics(bodyList, dt) {
             b.x += b.vx*dt + 0.5*b.oldAx*dt*dt; b.y += b.vy*dt + 0.5*b.oldAy*dt*dt;
             b.vx += 0.5*(b.oldAx+b.ax)*dt; b.vy += 0.5*(b.oldAy+b.ay)*dt;
         } else if (b.parent) {
-            const omega = Math.sqrt((G*(b.parent.mass+b.mass))/Math.pow(b.orbitDist,3));
+            // 衛星の角速度修正: 視覚的な「地球1年で月が13周」を維持するためのスケール同期 (約100倍のG相当を局所適用)
+            const omega = Math.sqrt((G * 135 * (b.parent.mass + b.mass)) / Math.pow(b.orbitDist, 3));
             b.angle += omega * dt;
             b.x = b.parent.x + Math.cos(b.angle)*b.orbitDist;
             b.y = b.parent.y + Math.sin(b.angle)*b.orbitDist;
@@ -131,12 +148,12 @@ function initSolarSystem() {
     for(let i=0; i<3; i++) nebulae.push({ x: Math.random()*2000, y: Math.random()*2000, r: 300+Math.random()*400, c: `hsla(${Math.random()*360}, 60%, 45%, 0.1)` });
     const planets = [
         [387, PRESETS.mercury, []], [723, PRESETS.venus, []],
-        [1000, PRESETS.earth, [[10, 0.003, "#b0b0b0", "月"]]], 
-        [1524, PRESETS.mars, [[12, 0.0001, "#b59e8a", "フォボス"]]],
-        [5203, PRESETS.jupiter, [[45, 0.45, "#e2d06e", "イオ"],[60, 0.4, "#a0a0a0", "エウロパ"],[80, 0.7, "#7a7a7a", "ガニメデ"]]],
-        [9537, PRESETS.saturn, [[90, 0.65, "#d2a01e", "タイタン"]]],
-        [19191, PRESETS.uranus, [[55, 0.1, "#b0b0b0", "チタニア"]]],
-        [30069, PRESETS.neptune, [[70, 0.1, "#90a0b0", "トリトン"]]]
+        [1000, PRESETS.earth, [[20, 0.003, "#b0b0b0", "月"]]], 
+        [1524, PRESETS.mars, [[18, 0.0001, "#b59e8a", "フォボス"]]],
+        [5203, PRESETS.jupiter, [[60, 0.45, "#e2d06e", "イオ"],[80, 0.4, "#a0a0a0", "エウロパ"],[100, 0.7, "#7a7a7a", "ガニメデ"]]],
+        [9537, PRESETS.saturn, [[120, 0.65, "#d2a01e", "タイタン"]]],
+        [19191, PRESETS.uranus, [[80, 0.1, "#b0b0b0", "チタニア"]]],
+        [30069, PRESETS.neptune, [[110, 0.1, "#90a0b0", "トリトン"]]]
     ];
     planets.forEach(p => {
         const a = Math.random()*Math.PI*2, v = Math.sqrt((G*sun.mass)/p[0]);
@@ -150,14 +167,27 @@ function initSolarSystem() {
 
 function handleGacha() {
     bodies = []; asteroids = []; bodyCounter = 0; addedCount = 0;
-    const center = new Body(0, 0, 0, 0, PRESETS.sun.m, '#fff', mutateName("ノヴァ"));
-    bodies.push(center);
+    const mode = Math.random() < 0.1 ? (Math.random() < 0.5 ? "A" : "B") : "S";
+    let center;
+    if (mode === "A") {
+        const m = PRESETS.sun.m, d = 650, v = 0.5*Math.sqrt(G*2*m/d);
+        const s1 = new Body(-d/2, 0, 0, v, m, "#fff", mutateName("ゼウス")), s2 = new Body(d/2, 0, 0, -v, m, "#fff", mutateName("ヘリオス"));
+        bodies.push(s1, s2); center = {x:0, y:0, mass: 2*m, vx:0, vy:0};
+    } else if (mode === "B") {
+        const m1 = PRESETS.sun.m*8, m2 = PRESETS.sun.m*0.05, d = 700;
+        const b1 = new Body(0, 0, 0, 0, m1, "#fff", mutateName("クロノス"));
+        bodies.push(b1, new Body(d, 0, 0, Math.sqrt(G*(m1+m2)/d), m2, "#ffaa00", mutateName("ガイア")));
+        center = b1;
+    } else {
+        center = new Body(0, 0, 0, 0, PRESETS.sun.m, '#fff', mutateName("ノヴァ"));
+        bodies.push(center);
+    }
     for (let i=0; i<8; i++) {
-        const d = 1600+Math.random()*5000, m = 100+Math.random()*1000, a = Math.random()*Math.PI*2, v = Math.sqrt((G*center.mass)/d);
+        const d = 1600+Math.random()*5000, m = 100+Math.random()*1000, a = Math.random()*Math.PI*2, v = Math.sqrt((G*(center.mass||M_SUN))/d);
         const p = new Body(Math.cos(a)*d, Math.sin(a)*d, -Math.sin(a)*v, Math.cos(a)*v, m, `hsl(${Math.random()*360},70%,60%)`, mutateName(BASE_NAMES[i%9]));
         bodies.push(p);
         if (Math.random() < 0.4) {
-            const mn = new Body(0,0,0,0, m*0.01, "#aaa", p.name+"-S", null, true); mn.parent = p; mn.orbitDist = 30+Math.random()*20; mn.angle = Math.random()*Math.PI*2; bodies.push(mn);
+            const mn = new Body(0,0,0,0, m*0.01, "#aaa", p.name+"-S"+getSuffix(addedCount++), null, true); mn.parent = p; mn.orbitDist = 30+Math.random()*20; mn.angle = Math.random()*Math.PI*2; bodies.push(mn);
         }
     }
     offset = {x:0, y:0}; updateSelect();
@@ -170,7 +200,6 @@ function loop() {
             computePhysics(bodies, dt);
             if (showOrbits && s % 8 === 0) { 
                 bodies.forEach(b => { 
-                    // 絶対座標（World Space）を記録
                     b.history.push({x: b.x, y: b.y}); 
                     if (b.history.length > orbitHistoryLength) b.history.shift(); 
                 }); 
@@ -195,7 +224,6 @@ function loop() {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     const bhs = bodies.filter(b => b.isBlackHole);
 
-    // 背景
     [...nebulae, ...bgStars].forEach(s => {
         let lx = (s.x - offset.x*zoom*0.01) % canvas.width, ly = (s.y - offset.y*zoom*0.01) % canvas.height;
         if(lx<0) lx+=canvas.width; if(ly<0) ly+=canvas.height;
@@ -210,27 +238,21 @@ function loop() {
     const target = bodies.find(b => b.id === parseInt(document.getElementById('targetSelect').value));
     if (target) { offset.x = target.x; offset.y = target.y + (panel.offsetHeight/(2*zoom)); }
 
-    // 軌跡描画
     if (showOrbits && orbitHistoryLength > 0) {
         bodies.forEach(b => {
             if (b.history.length < 2) return;
-            // 衛星LOD: 衛星の軌道が画面上で十分な大きさ(15px以上)でない場合は描画スキップ
             if (b.isMoon && b.orbitDist * zoom < 15) return;
-
             const len = b.history.length;
             ctx.beginPath();
             for(let i=1; i<len; i++) {
-                const p1 = b.history[i-1], p2 = b.history[i];
+                const p1 = b.history[i-1];
                 ctx.lineTo((p1.x-offset.x)*zoom+canvas.width/2, (p1.y-offset.y)*zoom+canvas.height/2);
             }
-            let alpha = 0.25;
-            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-            ctx.lineWidth = 1;
-            ctx.stroke();
+            ctx.strokeStyle = `rgba(255,255,255,0.25)`;
+            ctx.lineWidth = 1; ctx.stroke();
         });
     }
 
-    // 天体描画
     bodies.forEach(b => {
         if (b.isMoon && b.orbitDist * zoom < 5) return;
         const sx = (b.x-offset.x)*zoom+canvas.width/2, sy = (b.y-offset.y)*zoom+canvas.height/2;
@@ -238,12 +260,10 @@ function loop() {
         let drawRadius = b.radius;
         if (moons.length > 0) drawRadius = Math.min(drawRadius, Math.min(...moons.map(m => m.orbitDist)) * 0.45);
         const sr = Math.max(2, drawRadius * zoom);
-
         ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2);
         ctx.fillStyle = b.color; ctx.fill();
         if (b.isBlackHole) { ctx.strokeStyle = "#fff"; ctx.stroke(); }
         if (b.ringType) { ctx.beginPath(); ctx.ellipse(sx, sy, sr*2.5, sr*0.8, 0.4, 0, Math.PI*2); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.stroke(); }
-
         if (showLabels && (!b.isMoon || b.orbitDist * zoom > 30)) {
             const tx = sx + sr*0.7, ty = sy - sr*0.7; ctx.fillStyle="#fff"; ctx.font="10px sans-serif"; 
             if (showDebug) {
@@ -259,7 +279,6 @@ function loop() {
         if(p.life > 0) { ctx.fillStyle=p.c; ctx.fillRect((p.x-offset.x)*zoom+canvas.width/2, (p.y-offset.y)*zoom+canvas.height/2, 2, 2); return true; }
         return false;
     });
-
     requestAnimationFrame(loop);
 }
 
@@ -280,8 +299,12 @@ function deleteBody(x, y) {
 function spawn(x, y, ex, ey) {
     if (inputHandled) return;
     const sx = (x-canvas.width/2)/zoom+offset.x, sy = (y-canvas.height/2)/zoom+offset.y;
-    const vx = (ex-x)*0.06/zoom, vy = (ey-y)*0.06/zoom, type = document.getElementById('launchType').value, c = PRESETS[type];
-    bodies.push(new Body(sx, sy, vx, vy, c.m, c.c, c.n + " " + getSuffix(addedCount++), c.r)); updateSelect();
+    const vx = (ex-x)*0.06/zoom, vy = (ey-y)*0.06/zoom;
+    const type = document.getElementById('launchType').value;
+    const c = PRESETS[type];
+    const mFactor = (type === 'sun' || type === 'blackhole') ? parseFloat(document.getElementById('massRange').value) : 1;
+    bodies.push(new Body(sx, sy, vx, vy, c.m * mFactor, c.c, c.n + " " + getSuffix(addedCount++), c.r, false));
+    updateSelect();
 }
 
 // Controls
@@ -300,12 +323,7 @@ canvas.onwheel = (e) => { e.preventDefault(); zoom *= (e.deltaY<0?1.1:0.9); };
 
 window.onload = () => {
     document.getElementById('orbitLengthRange').oninput = (e) => { orbitHistoryLength = parseInt(e.target.value); showOrbits = orbitHistoryLength > 0; };
-    document.getElementById('orbitReset').onclick = () => { 
-        orbitHistoryLength = 300; 
-        document.getElementById('orbitLengthRange').value = 300; 
-        showOrbits = true;
-        // スライダー変更を即時反映させるためのイベント発火(任意)
-    };
+    document.getElementById('orbitReset').onclick = () => { orbitHistoryLength = 300; document.getElementById('orbitLengthRange').value = 300; showOrbits = true; };
     document.getElementById('massReset').onclick = () => { document.getElementById('massRange').value = 1; };
     document.getElementById('timeReset').onclick = () => { document.getElementById('timeRange').value = 1.5; };
     document.getElementById('resetBtn').onclick = () => initSolarSystem();
