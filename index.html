@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v23.0</title>
+    <title>Solar Simulator v24.0</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -12,27 +12,30 @@
             position: absolute; bottom: 10px; left: 10px; right: 10px;
             background: rgba(10, 10, 25, 0.95); color: #fff;
             padding: 12px; border-radius: 16px; border: 1px solid #444;
-            display: flex; flex-direction: column; gap: 8px;
-            pointer-events: auto; max-width: 500px; z-index: 100;
+            display: flex; flex-direction: column; gap: 6px;
+            pointer-events: auto; max-width: 550px; z-index: 100;
         }
-        .ui-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-        .ui-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-        select, button { background: #222; color: #fff; border: 1px solid #555; padding: 6px; border-radius: 6px; font-size: 14px; width: 100%; box-sizing: border-box; outline: none; cursor: pointer; }
-        .icon-btn { font-size: 18px; padding: 8px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
-        input[type=range] { flex: 2; accent-color: #00b060; height: 6px; cursor: pointer; }
-        input[type=range]:disabled { opacity: 0.2; }
-        label { white-space: nowrap; font-size: 11px; color: #aaa; min-width: 40px; }
-        .orbit-ctrl { background: #333; padding: 4px 8px; border-radius: 8px; display: flex; gap: 4px; align-items: center; flex: 1; }
-        .small-btn { font-size: 10px; padding: 4px; width: auto; min-width: 35px; }
+        .ui-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 2px 0; }
+        select, button { background: #222; color: #fff; border: 1px solid #555; padding: 6px; border-radius: 6px; font-size: 14px; outline: none; cursor: pointer; }
+        .icon-btn { flex: 1; font-size: 18px; padding: 8px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+        input[type=range] { flex: 1; accent-color: #00b060; height: 6px; cursor: pointer; }
+        label { white-space: nowrap; font-size: 12px; color: #aaa; min-width: 60px; font-weight: bold; }
+        .def-btn { font-size: 10px; padding: 4px 8px; min-width: 40px; background: #333; }
+        .def-btn:hover { background: #444; }
+        .ui-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 4px; }
     </style>
 </head>
 <body>
-<div id="version">v23.0 Mass Ratios & Orbit Length Control</div>
+<div id="version">v24.0 Astronomical Precision & UI Refinement</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
-    <div class="ui-row"><select id="targetSelect"><option value="-1">🔭 自由視点</option></select></div>
     <div class="ui-row">
-        <select id="launchType">
+        <label>🔭 視点</label>
+        <select id="targetSelect" style="flex:1;"><option value="-1">自由視点</option></select>
+    </div>
+    <div class="ui-row">
+        <label>🚀 投入</label>
+        <select id="launchType" style="flex:1;">
             <option value="sun">☀️ 太陽</option><option value="mercury">☿️ 水星</option>
             <option value="venus">♀️ 金星</option><option value="earth" selected>🌍 地球</option>
             <option value="mars">♂️ 火星</option><option value="jupiter">♃ 木星</option>
@@ -42,19 +45,19 @@
         </select>
     </div>
     <div class="ui-row">
-        <label>💫 軌跡</label>
-        <div class="orbit-ctrl">
-            <input type="range" id="orbitLengthRange" min="0" max="500" value="150">
-            <button id="orbitOnBtn" class="small-btn">On</button>
-            <button id="orbitOffBtn" class="small-btn">Off</button>
-            <button id="orbitResetBtn" class="small-btn">Def</button>
-        </div>
+        <label>🌞 質量</label>
+        <input type="range" id="massRange" min="0.1" max="10" step="0.1" value="1" disabled>
+        <button id="massReset" class="def-btn">Def</button>
     </div>
     <div class="ui-row">
-        <label id="massLabel" style="color: #444;">🌞 質量</label>
-        <input type="range" id="massRange" min="0.1" max="10" step="0.1" value="1" disabled>
         <label>⏩ 時間</label>
         <input type="range" id="timeRange" min="0" max="10" step="0.1" value="1.5">
+        <button id="timeReset" class="def-btn">Def</button>
+    </div>
+    <div class="ui-row">
+        <label>💫 軌跡</label>
+        <input type="range" id="orbitLengthRange" min="0" max="5000" value="300">
+        <button id="orbitReset" class="def-btn">Def</button>
     </div>
     <div class="ui-grid">
         <button id="pauseBtn" class="icon-btn">⏸️</button>
@@ -70,37 +73,15 @@
 <script>
 const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
 const panel = document.getElementById('panel');
-let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, isPanning = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, orbitHistoryLength = 150, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false, lastTapTime = 0;
-const G = 1;
+let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, isPanning = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, orbitHistoryLength = 300, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false, lastTapTime = 0;
+const G = 1, M_SUN = 1000000, M_EARTH = 3.003;
 
-const KANA = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ";
-const BASE_NAMES = ["ゼウス", "アエテルナ", "ベスタ", "ノヴァ", "オシリス", "テラ", "ヘリオス", "クロノス", "ガイア"];
-
-function mutateName(name) {
-    let chars = name.split('');
-    let mutationCount = Math.max(1, Math.floor(chars.length * 0.2));
-    for(let i=0; i<mutationCount; i++) chars[Math.floor(Math.random()*chars.length)] = KANA[Math.floor(Math.random()*KANA.length)];
-    return chars.join('');
-}
-
-function getSuffix(n) {
-    let s = ""; n++;
-    while(n > 0) { let m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - m) / 26); }
-    return s;
-}
-
-// 正しい質量比 (太陽 = 1,000,000)
 const PRESETS = {
-    sun: { m: 1000000, c: '#ffcc00', n: "太陽" },
-    mercury: { m: 0.166, c: '#aaaaaa', n: "水星" },
-    venus: { m: 2.447, c: '#ffddaa', n: "金星" },
-    earth: { m: 3.003, c: '#44aaff', n: "地球" },
-    mars: { m: 0.322, c: '#ff6644', n: "火星" },
-    jupiter: { m: 954.7, c: '#ffcc99', n: "木星" },
-    saturn: { m: 285.8, c: '#eeddaa', n: "土星", r: "h" },
-    uranus: { m: 43.66, c: '#50c878', n: "天王星", r: "h" },
-    neptune: { m: 51.51, c: '#120a8f', n: "海王星" },
-    pluto: { m: 0.006, c: '#ccbbbb', n: "冥王星" },
+    sun: { m: M_SUN, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.166, c: '#aaaaaa', n: "水星" },
+    venus: { m: 2.447, c: '#ffddaa', n: "金星" }, earth: { m: M_EARTH, c: '#44aaff', n: "地球" },
+    mars: { m: 0.322, c: '#ff6644', n: "火星" }, jupiter: { m: 954.7, c: '#ffcc99', n: "木星" },
+    saturn: { m: 285.8, c: '#eeddaa', n: "土星", r: "h" }, uranus: { m: 43.66, c: '#50c878', n: "天王星", r: "h" },
+    neptune: { m: 51.51, c: '#120a8f', n: "海王星" }, pluto: { m: 0.006, c: '#ccbbbb', n: "冥王星" },
     blackhole: { m: 10000000, c: '#000', n: "ブラックホール" }
 };
 
@@ -109,7 +90,7 @@ class Body {
         this.id = bodyCounter++; this.x = x || 0; this.y = y || 0; this.vx = vx || 0; this.vy = vy || 0; this.ax = 0; this.ay = 0; this.mass = mass || 1; 
         this.baseColor = color; this.color = color; this.name = name; this.ringType = ringType; this.isMoon = isMoon; this.isComet = isComet;
         this.isAnalytic = isMoon; this.parent = null; this.orbitDist = 0; this.angle = 0;
-        this.history = []; this.bhCountdown = -1; this.maxForce = 0; this.strongestAttractorName = ""; this.attractorPos = null;
+        this.history = []; this.bhCountdown = -1; this.maxForce = 0; this.attractorPos = null;
         this.updateProperties();
     }
     updateProperties() {
@@ -128,8 +109,8 @@ function computePhysics(bodyList, dt) {
             const b2 = bodyList[j]; if (b2.isAnalytic) continue;
             const dx = b2.x-b1.x, dy = b2.y-b1.y, d2 = dx*dx+dy*dy+100, d = Math.sqrt(d2), f = (G*b1.mass*b2.mass)/d2;
             b1.ax += (f*dx/d)/b1.mass; b1.ay += (f*dy/d)/b1.mass; b2.ax -= (f*dx/d)/b2.mass; b2.ay -= (f*dy/d)/b2.mass;
-            if (f/b1.mass > b1.maxForce) { b1.maxForce = f/b1.mass; b1.strongestAttractorName = b2.name; b1.attractorPos = {x:b2.x, y:b2.y}; }
-            if (f/b2.mass > b2.maxForce) { b2.maxForce = f/b2.mass; b2.strongestAttractorName = b1.name; b2.attractorPos = {x:b1.x, y:b1.y}; }
+            if (f/b1.mass > b1.maxForce) { b1.maxForce = f/b1.mass; b1.attractorPos = {x:b2.x, y:b2.y}; }
+            if (f/b2.mass > b2.maxForce) { b2.maxForce = f/b2.mass; b2.attractorPos = {x:b1.x, y:b1.y}; }
         }
     }
     bodyList.forEach(b => {
@@ -152,12 +133,12 @@ function initSolarSystem() {
     for(let i=0; i<3; i++) nebulae.push({ x: Math.random()*2000, y: Math.random()*2000, r: 300+Math.random()*400, c: `hsla(${Math.random()*360}, 60%, 45%, 0.1)` });
     const planets = [
         [387, PRESETS.mercury, []], [723, PRESETS.venus, []],
-        [1000, PRESETS.earth, [[11, 0.003, "#b0b0b0", "月"]]], // 月の公転半径を調整
-        [1524, PRESETS.mars, [[12, 0.0001, "#b59e8a", "フォボス"]]],
-        [5203, PRESETS.jupiter, [[80, 0.45, "#e2d06e", "イオ"],[100, 0.4, "#a0a0a0", "エウロパ"],[130, 0.7, "#7a7a7a", "ガニメデ"]]],
-        [9537, PRESETS.saturn, [[120, 0.65, "#d2a01e", "タイタン"]]],
-        [19191, PRESETS.uranus, [[80, 0.1, "#b0b0b0", "チタニア"]]],
-        [30069, PRESETS.neptune, [[110, 0.1, "#90a0b0", "トリトン"]]],
+        [1000, PRESETS.earth, [[7.5, 0.03, "#b0b0b0", "月"]]], // 距離を詰め周期を高速化
+        [1524, PRESETS.mars, [[10, 0.0001, "#b59e8a", "フォボス"]]],
+        [5203, PRESETS.jupiter, [[45, 0.45, "#e2d06e", "イオ"],[60, 0.4, "#a0a0a0", "エウロパ"],[80, 0.7, "#7a7a7a", "ガニメデ"]]],
+        [9537, PRESETS.saturn, [[90, 0.65, "#d2a01e", "タイタン"]]],
+        [19191, PRESETS.uranus, [[55, 0.1, "#b0b0b0", "チタニア"]]],
+        [30069, PRESETS.neptune, [[70, 0.1, "#90a0b0", "トリトン"]]],
         [39482, PRESETS.pluto, []]
     ];
     planets.forEach(p => {
@@ -171,34 +152,6 @@ function initSolarSystem() {
     offset = {x:0, y:0}; updateSelect();
 }
 
-function handleGacha() {
-    bodies = []; asteroids = []; bodyCounter = 0; addedCount = 0;
-    const mode = Math.random() < 0.1 ? (Math.random() < 0.5 ? "A" : "B") : "S";
-    let center;
-    if (mode === "A") {
-        const m = PRESETS.sun.m, d = 650, v = 0.5*Math.sqrt(G*2*m/d);
-        const s1 = new Body(-d/2, 0, 0, v, m, "#fff", mutateName("ゼウス")), s2 = new Body(d/2, 0, 0, -v, m, "#fff", mutateName("ヘリオス"));
-        bodies.push(s1, s2); center = {x:0, y:0, mass: 2*m, vx:0, vy:0};
-    } else if (mode === "B") {
-        const m1 = PRESETS.sun.m*8, m2 = PRESETS.sun.m*0.05, d = 700;
-        const b1 = new Body(0, 0, 0, 0, m1, "#fff", mutateName("クロノス"));
-        bodies.push(b1, new Body(d, 0, 0, Math.sqrt(G*(m1+m2)/d), m2, "#ffaa00", mutateName("ガイア")));
-        center = b1;
-    } else {
-        center = new Body(0, 0, 0, 0, PRESETS.sun.m, "#fff", mutateName("ノヴァ"));
-        bodies.push(center);
-    }
-    for (let i=0; i<8; i++) {
-        const d = 1600+Math.random()*5000, m = 100+Math.random()*1000, a = Math.random()*Math.PI*2, v = Math.sqrt((G*center.mass)/d);
-        const p = new Body((center.x||0)+Math.cos(a)*d, (center.y||0)+Math.sin(a)*d, (center.vx||0)-Math.sin(a)*v, (center.vy||0)+Math.cos(a)*v, m, `hsl(${Math.random()*360},70%,60%)`, mutateName(BASE_NAMES[i%BASE_NAMES.length]));
-        bodies.push(p);
-        if (Math.random() < 0.4) {
-            for(let j=0; j<Math.floor(Math.random()*2)+1; j++) { const mn = new Body(0,0,0,0, m*0.01, "#aaa", p.name+"-S"+j, null, true); mn.parent = p; mn.orbitDist = 30+j*20; mn.angle = Math.random()*Math.PI*2; bodies.push(mn); }
-        }
-    }
-    offset = {x:center.x||0, y:center.y||0}; updateSelect();
-}
-
 function loop() {
     if (!isPaused && !eventStopped) {
         const subSteps = isHighPrecision ? 128 : 32; const dt = (parseFloat(document.getElementById('timeRange').value)*0.5)/subSteps;
@@ -208,7 +161,7 @@ function loop() {
             if (isCollision) {
                 for (let i=0; i<bodies.length; i++) {
                     const b1 = bodies[i]; if (b1.isAnalytic) continue;
-                    for (let j=i+1; j<bodies.length; j++) {
+                    for (let j = i + 1; j < bodies.length; j++) {
                         const b2 = bodies[j]; if (b2.isAnalytic) continue;
                         const dx = b2.x-b1.x, dy = b2.y-b1.y, d = Math.sqrt(dx*dx+dy*dy);
                         if (d < (b1.radius + b2.radius) * 0.9) {
@@ -224,7 +177,7 @@ function loop() {
         }
         bodies.forEach(b => {
             if (b.bhCountdown > 0) { b.bhCountdown--; if (b.bhCountdown === 0) { eventStopped = true; whiteoutAlpha = 1.0; setTimeout(() => { b.name = "ブラックホール " + getSuffix(addedCount++); b.updateProperties(); eventStopped = false; updateSelect(); }, 1000); } }
-            if (!showOrbits || orbitHistoryLength === 0) b.history = [];
+            if (orbitHistoryLength === 0) b.history = [];
         });
         asteroids.forEach((a, idx) => {
             a.ang += a.spd * (parseFloat(document.getElementById('timeRange').value)*0.5);
@@ -236,11 +189,10 @@ function loop() {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     const bhs = bodies.filter(b => b.isBlackHole);
     [...nebulae, ...bgStars].forEach(s => {
-        let lx = (s.x - offset.x*zoom*0.01) % canvas.width; if(lx<0) lx+=canvas.width;
-        let ly = (s.y - offset.y*zoom*0.01) % canvas.height; if(ly<0) ly+=canvas.height;
+        let lx = (s.x - offset.x*zoom*0.01) % canvas.width, ly = (s.y - offset.y*zoom*0.01) % canvas.height;
+        if(lx<0) lx+=canvas.width; if(ly<0) ly+=canvas.height;
         bhs.forEach(b => {
-            const bx = (b.x-offset.x)*zoom+canvas.width/2, by = (b.y-offset.y)*zoom+canvas.height/2;
-            const dx = lx-bx, dy = ly-by, dist = Math.sqrt(dx*dx+dy*dy);
+            const bx = (b.x-offset.x)*zoom+canvas.width/2, by = (b.y-offset.y)*zoom+canvas.height/2, dx = lx-bx, dy = ly-by, dist = Math.sqrt(dx*dx+dy*dy);
             if(dist < 180) { lx += dx/dist*(180-dist)*0.6; ly += dy/dist*(180-dist)*0.6; }
         });
         if(s.r) { const grad = ctx.createRadialGradient(lx,ly,0,lx,ly,s.r); grad.addColorStop(0, s.c); grad.addColorStop(1, 'transparent'); ctx.fillStyle = grad; ctx.fillRect(lx-s.r, ly-s.r, s.r*2, s.r*2); }
@@ -259,9 +211,8 @@ function loop() {
                 const p1 = b.history[i-1], p2 = b.history[i];
                 ctx.moveTo((p1.x-offset.x)*zoom+canvas.width/2, (p1.y-offset.y)*zoom+canvas.height/2);
                 ctx.lineTo((p2.x-offset.x)*zoom+canvas.width/2, (p2.y-offset.y)*zoom+canvas.height/2);
-                let alpha = 1.0;
-                if (i < len / 2) alpha = i / (len/2); 
-                if (i > len * 0.9) alpha = 1.0 - ((i - len*0.9)/(len*0.1))*0.5;
+                let alpha = (i < len / 2) ? i / (len/2) : 1.0;
+                if (i > len * 0.9) alpha *= (1.0 - (i - len*0.9)/(len*0.1)) + 0.5; // Tip keep visible
                 ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.25})`; ctx.stroke();
             }
         });
@@ -275,11 +226,11 @@ function loop() {
         const sx = (b.x-offset.x)*zoom+canvas.width/2, sy = (b.y-offset.y)*zoom+canvas.height/2;
         const moons = bodies.filter(m => m.parent === b);
         let drawRadius = b.radius;
-        if (moons.length > 0) drawRadius = Math.min(drawRadius, Math.min(...moons.map(m => m.orbitDist)) * 0.4);
+        if (moons.length > 0) drawRadius = Math.min(drawRadius, Math.min(...moons.map(m => m.orbitDist)) * 0.45);
         const sr = Math.max(2, drawRadius * zoom);
         
         if (b.isComet) {
-            const sun = bodies[0]; const dx = b.x - sun.x, dy = b.y - sun.y, d = Math.sqrt(dx*dx+dy*dy);
+            const sun = bodies[0], dx = b.x - sun.x, dy = b.y - sun.y, d = Math.sqrt(dx*dx+dy*dy);
             ctx.strokeStyle = "rgba(200,220,255,0.2)"; ctx.lineWidth = 2;
             for(let i=0; i<3; i++) { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(sx + dx/d*60, sy + dy/d*60, sx + dx/d*130, sy + dy/d*130 + (i-1)*18); ctx.stroke(); }
         }
@@ -290,23 +241,21 @@ function loop() {
         if (b.isBlackHole) { ctx.strokeStyle = "#fff"; ctx.stroke(); }
         if (b.ringType) { ctx.beginPath(); ctx.ellipse(sx, sy, sr*2.5, sr*0.8, 0.4, 0, Math.PI*2); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.stroke(); }
         
-        let maxMoonOrbit = moons.length > 0 ? Math.max(...moons.map(m => m.orbitDist)) : 0;
         let isSatelliteVisible = b.parent && (bodies.filter(m => m.parent === b.parent).length > 0 && Math.max(...bodies.filter(m => m.parent === b.parent).map(m=>m.orbitDist))*zoom > canvas.width/4);
 
         if (showLabels && (!b.isMoon || isSatelliteVisible)) {
             const tx = sx + sr*0.7, ty = sy - sr*0.7; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx+10, ty-10); ctx.strokeStyle="rgba(255,255,255,0.3)"; ctx.stroke();
             ctx.fillStyle="#fff"; ctx.font="10px sans-serif"; 
-            let dName = showDebug ? b.name + " (" + b.mass.toPrecision(5) + ")" : b.name;
-            ctx.fillText(dName, tx+12, ty-12);
+            if (showDebug) {
+                ctx.fillText(b.name, tx+12, ty-18);
+                ctx.fillStyle="#0f0"; ctx.fillText(`${(b.mass/M_SUN).toPrecision(5)} M☉`, tx+12, ty-8);
+                ctx.fillStyle="#4af"; ctx.fillText(`${(b.mass/M_EARTH).toPrecision(5)} M⊕`, tx+12, ty+2);
+            } else { ctx.fillText(b.name, tx+12, ty-12); }
         }
         if (showDebug && b.attractorPos) {
             const dX = (b.attractorPos.x-offset.x)*zoom+canvas.width/2 - sx, dY = (b.attractorPos.y-offset.y)*zoom+canvas.height/2 - sy, dist = Math.sqrt(dX*dX+dY*dY);
-            if(dist > 0.0001) { 
-                ctx.beginPath(); ctx.moveTo(sx, sy); 
-                const forceLen = Math.min(150, b.maxForce * 15000); 
-                ctx.lineTo(sx+dX/dist*forceLen, sy+dY/dist*forceLen); ctx.strokeStyle="yellow"; ctx.lineWidth=1; ctx.stroke(); 
-            }
+            if(dist > 0.1) { ctx.beginPath(); ctx.moveTo(sx, sy); const forceLen = Math.min(150, b.maxForce * 15000); ctx.lineTo(sx+dX/dist*forceLen, sy+dY/dist*forceLen); ctx.strokeStyle="yellow"; ctx.lineWidth=1; ctx.stroke(); }
         }
     });
 
@@ -321,7 +270,7 @@ function loop() {
 }
 
 function updateSelect() {
-    const sel = document.getElementById('targetSelect'), v = sel.value; sel.innerHTML = '<option value="-1"> telescope 自由視点</option>';
+    const sel = document.getElementById('targetSelect'), v = sel.value; sel.innerHTML = '<option value="-1">自由視点</option>';
     bodies.forEach(b => {
         const emojis = {'#ffcc00':'🟡','#ffffff':'⚪','#aaccff':'🔵','#aaaaaa':'⚪','#ffddaa':'🟠','#44aaff':'🔵','#ff6644':'🔴','#eeddaa':'🟤','#50c878':'🟢','#120a8f':'🔵','#ccbbbb':'⚪','#000':'⚫'};
         const o = document.createElement('option'); o.value = b.id; o.textContent = `${b.isBlackHole?'⚫':(emojis[b.baseColor]||'⚪')} ${b.name}`; sel.appendChild(o);
@@ -342,7 +291,7 @@ function spawn(x, y, ex, ey) {
     bodies.push(new Body(sx, sy, vx, vy, !(document.getElementById('massRange').disabled) ? c.m * parseFloat(document.getElementById('massRange').value) : c.m, c.c, c.n + " " + getSuffix(addedCount++), c.r)); updateSelect();
 }
 
-// --- PC Controls ---
+// Controls
 canvas.onmousedown = (e) => {
     if (e.button === 0) { isDragging = true; startPos = {x:e.clientX, y:e.clientY}; inputHandled = false; }
     if (e.button === 1) { isPanning = true; startPos = {x:e.clientX, y:e.clientY}; e.preventDefault(); }
@@ -359,7 +308,6 @@ window.onmousemove = (e) => {
 window.onmouseup = (e) => { if (e.button === 0 && isDragging) { if(!inputHandled) spawn(startPos.x, startPos.y, e.clientX, e.clientY); isDragging = false; } if (e.button === 1) isPanning = false; };
 canvas.onwheel = (e) => { e.preventDefault(); if (e.deltaY < 0) zoom *= 1.1; else zoom *= 0.9; };
 
-// --- Mobile Controls ---
 canvas.addEventListener('touchstart', (e) => { 
     e.preventDefault(); const now = Date.now();
     if (now - lastTapTime < 300) { deleteBody(e.touches[0].clientX, e.touches[0].clientY); isDragging = false; } 
@@ -374,9 +322,9 @@ window.onload = () => {
     document.getElementById('resetBtn').onclick = () => initSolarSystem();
     document.getElementById('randomBtn').onclick = () => handleGacha();
     document.getElementById('orbitLengthRange').oninput = (e) => { orbitHistoryLength = parseInt(e.target.value); showOrbits = orbitHistoryLength > 0; };
-    document.getElementById('orbitOnBtn').onclick = () => { showOrbits = true; if(orbitHistoryLength === 0) orbitHistoryLength = 150; document.getElementById('orbitLengthRange').value = orbitHistoryLength; };
-    document.getElementById('orbitOffBtn').onclick = () => { showOrbits = false; orbitHistoryLength = 0; document.getElementById('orbitLengthRange').value = 0; };
-    document.getElementById('orbitResetBtn').onclick = () => { showOrbits = true; orbitHistoryLength = 150; document.getElementById('orbitLengthRange').value = 150; };
+    document.getElementById('orbitReset').onclick = () => { orbitHistoryLength = 300; document.getElementById('orbitLengthRange').value = 300; showOrbits = true; };
+    document.getElementById('massReset').onclick = () => { document.getElementById('massRange').value = 1; };
+    document.getElementById('timeReset').onclick = () => { document.getElementById('timeRange').value = 1.5; };
     document.getElementById('labelBtn').onclick = function() { showLabels = !showLabels; this.style.background = showLabels ? "#0060b0" : "#333"; };
     document.getElementById('debugBtn').onclick = function() { showDebug = !showDebug; this.style.background = showDebug ? "#b0a000" : "#333"; };
     document.getElementById('precisionBtn').onclick = function() { isHighPrecision = !isHighPrecision; this.style.background = isHighPrecision ? "#00b060" : "#333"; };
