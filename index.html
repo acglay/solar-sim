@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Solar Simulator v26.0</title>
+    <title>Solar Simulator v27.0</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; cursor: crosshair; }
@@ -25,7 +25,7 @@
     </style>
 </head>
 <body>
-<div id="version">v26.0 Selective Fixes: Satellite Speed, Gacha, Launch</div>
+<div id="version">v27.0 Path Fade Restored & Pause Fixed</div>
 <canvas id="canvas"></canvas>
 <div class="ui-panel" id="panel">
     <div class="ui-row">
@@ -75,22 +75,6 @@ const panel = document.getElementById('panel');
 let bodies = [], particles = [], asteroids = [], bgStars = [], nebulae = [], zoom = 0.4, offset = { x: 0, y: 0 }, isDragging = false, isPanning = false, startPos = null, isPaused = false, bodyCounter = 0, addedCount = 0, showLabels = true, isHighPrecision = true, showDebug = false, isCollision = true, showOrbits = true, orbitHistoryLength = 300, whiteoutAlpha = 0, eventStopped = false, lastPinchDist = 0, inputHandled = false, lastTapTime = 0;
 const G = 1, M_SUN = 1000000, M_EARTH = 3.003;
 
-const KANA = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ";
-const BASE_NAMES = ["ゼウス", "アエテルナ", "ベスタ", "ノヴァ", "オシリス", "テラ", "ヘリオス", "クロノス", "ガイア"];
-
-function mutateName(name) {
-    let chars = name.split('');
-    let mutationCount = Math.max(1, Math.floor(chars.length * 0.2));
-    for(let i=0; i<mutationCount; i++) chars[Math.floor(Math.random()*chars.length)] = KANA[Math.floor(Math.random()*KANA.length)];
-    return chars.join('');
-}
-
-function getSuffix(n) {
-    let s = ""; n++;
-    while(n > 0) { let m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - m) / 26); }
-    return s;
-}
-
 const PRESETS = {
     sun: { m: M_SUN, c: '#ffcc00', n: "太陽" }, mercury: { m: 0.166, c: '#aaaaaa', n: "水星" },
     venus: { m: 2.447, c: '#ffddaa', n: "金星" }, earth: { m: M_EARTH, c: '#44aaff', n: "地球" },
@@ -132,7 +116,6 @@ function computePhysics(bodyList, dt) {
             b.x += b.vx*dt + 0.5*b.oldAx*dt*dt; b.y += b.vy*dt + 0.5*b.oldAy*dt*dt;
             b.vx += 0.5*(b.oldAx+b.ax)*dt; b.vy += 0.5*(b.oldAy+b.ay)*dt;
         } else if (b.parent) {
-            // 衛星の角速度修正: 視覚的な「地球1年で月が13周」を維持するためのスケール同期 (約100倍のG相当を局所適用)
             const omega = Math.sqrt((G * 135 * (b.parent.mass + b.mass)) / Math.pow(b.orbitDist, 3));
             b.angle += omega * dt;
             b.x = b.parent.x + Math.cos(b.angle)*b.orbitDist;
@@ -243,13 +226,17 @@ function loop() {
             if (b.history.length < 2) return;
             if (b.isMoon && b.orbitDist * zoom < 15) return;
             const len = b.history.length;
-            ctx.beginPath();
             for(let i=1; i<len; i++) {
-                const p1 = b.history[i-1];
-                ctx.lineTo((p1.x-offset.x)*zoom+canvas.width/2, (p1.y-offset.y)*zoom+canvas.height/2);
+                const p1 = b.history[i-1], p2 = b.history[i];
+                ctx.beginPath();
+                ctx.moveTo((p1.x-offset.x)*zoom+canvas.width/2, (p1.y-offset.y)*zoom+canvas.height/2);
+                ctx.lineTo((p2.x-offset.x)*zoom+canvas.width/2, (p2.y-offset.y)*zoom+canvas.height/2);
+                // 軌跡のフェード復活
+                let alpha = (i < len / 2) ? i / (len / 2) : 1.0;
+                if (i > len * 0.9) alpha *= (1.0 - (i - len * 0.9) / (len * 0.1)) + 0.5;
+                ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.25})`;
+                ctx.lineWidth = 1; ctx.stroke();
             }
-            ctx.strokeStyle = `rgba(255,255,255,0.25)`;
-            ctx.lineWidth = 1; ctx.stroke();
         });
     }
 
@@ -321,7 +308,19 @@ window.onmousemove = (e) => {
 window.onmouseup = (e) => { if(e.button===0 && isDragging) { if(!inputHandled) spawn(startPos.x, startPos.y, e.clientX, e.clientY); isDragging=false; } isPanning=false; };
 canvas.onwheel = (e) => { e.preventDefault(); zoom *= (e.deltaY<0?1.1:0.9); };
 
+canvas.addEventListener('touchstart', (e) => { 
+    e.preventDefault(); const now = Date.now();
+    if (now - lastTapTime < 300) { deleteBody(e.touches[0].clientX, e.touches[0].clientY); isDragging = false; } 
+    else { isDragging = true; startPos = {x:e.touches[0].clientX, y:e.touches[0].clientY}; inputHandled = false; }
+    lastTapTime = now;
+    if(e.touches.length===2) { isDragging = false; lastPinchDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); lastMid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; } 
+}, {passive: false});
+canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if(e.touches.length===2) { const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY), mid = {x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2}; zoom *= (d/lastPinchDist); offset.x -= (mid.x-lastMid.x)/zoom; offset.y -= (mid.y-lastMid.y)/zoom; lastPinchDist = d; lastMid = mid; } }, {passive: false});
+canvas.addEventListener('touchend', (e) => { e.preventDefault(); if(isDragging && !inputHandled) { spawn(startPos.x, startPos.y, e.changedTouches[0].clientX, e.changedTouches[0].clientY); inputHandled = true; } isDragging = false; }, {passive: false});
+
 window.onload = () => {
+    const pBtn = document.getElementById('pauseBtn');
+    pBtn.onclick = () => { isPaused = !isPaused; pBtn.textContent = isPaused ? "▶️" : "⏸️"; };
     document.getElementById('orbitLengthRange').oninput = (e) => { orbitHistoryLength = parseInt(e.target.value); showOrbits = orbitHistoryLength > 0; };
     document.getElementById('orbitReset').onclick = () => { orbitHistoryLength = 300; document.getElementById('orbitLengthRange').value = 300; showOrbits = true; };
     document.getElementById('massReset').onclick = () => { document.getElementById('massRange').value = 1; };
